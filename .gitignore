@@ -1,0 +1,8 @@
+evolution-api/
+SumatraPDF-settings.txt
+TODO
+backend/__pycache__/
+backend/DOCUMENTS/
+backend/IMAGES/
+tmp/
+backend/config.py

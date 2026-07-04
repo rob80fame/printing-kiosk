@@ -9,20 +9,7 @@ API CONFIGURATION
 //install libraries
     npm install
 
-//create .env file in evolution-api folder and edit password and api key
-    SERVER_PORT=8080
-    AUTHENTICATION_API_KEY=yourapikey
-
-    # Database Configuration (modify postgrespassword with yours)
-    DATABASE_PROVIDER=postgresql
-    DATABASE_CONNECTION_URI=postgresql://postgres:postgrespassword@localhost:5432/evolution?schema=public
-    DATABASE_URL=postgresql://postgres:postgrespassword@localhost:5432/evolution?schema=public
-
-    # Cache Redis
-    CACHE_REDIS_ENABLED=true
-    CACHE_REDIS_URI=redis://localhost:6379
-
-    LOG_LEVEL=debug
+//create .env file as .env.example in evolution-api folder and edit password and api key
 
 //create db
     createdb -U postgres evolution
@@ -34,6 +21,7 @@ API CONFIGURATION
 //start api
     npm start
 
+//CHECK THE FOLLOWING
 //go to http://localhost:8080/manager/
 //link your whatsapp
 //events>webhook>Enabled
@@ -60,4 +48,4 @@ BACKEND and CONFIGURATION
     pip install flask psycopg2-binary cryptography requests docx2pdf sv-ttk
     "C:\Program Files\PostgreSQL\18\bin\createdb.exe" -U postgres images
 
-//Modify config.py with your data
+//Rename ex_config.py to config.py and fill in with your data
