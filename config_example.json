@@ -1,0 +1,9 @@
+{
+    "pass": "your sql password",
+    "npmdir": "C:\\Program Files\\nodejs\\npm.cmd",
+    "name": "your api istance name",
+    "phonenum": "your phone number alltogheter with the prefix, without the +",
+    "apikey": "your api key",
+    "Printer": "Microsoft Print to PDF",
+    "sudo": "your code to access control panel"
+}

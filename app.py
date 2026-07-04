@@ -4,7 +4,7 @@ from tkinter import ttk, messagebox
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import sv_ttk
-from backend import config
+import config
 import os
 import fitz
 from PIL import Image, ImageTk
@@ -12,6 +12,7 @@ import subprocess
 import sys
 # Database configuration
 DB_CONFIG = config.DB_CONFIG
+
 in_t = 50000 #(sec in millisec)
 
 class FileLookupApp:
@@ -114,12 +115,24 @@ class FileLookupApp:
     def clear_main_frame(self):
         for widget in self.main_frame.winfo_children():
             widget.destroy()
+    
+    def open_settings_manager(self):
+            try:
+                command = [sys.executable, "configuration_ui.py"]
+                subprocess.Popen(command) 
+            
+            except Exception as e:
+                messagebox.showerror("Errore", f"Impossibile avviare il processo di customizzazione: {str(e)}")
 
     def search_by_code(self):
         code = self.code_var.get().strip()
         #print(code)
         if not code:
             self.status_var.set("Inserisci un codice valido")
+            return
+        if code == config.sudo:
+            self.open_settings_manager()
+            self.code_var = ""
             return
 
         self.status_var.set("Ricerca in corso...")
@@ -222,6 +235,7 @@ class FileLookupApp:
             return
         
         self.status_var.set("Trovato i tuoi file")
+        self.code_var = ""
         
         cursor.close()
         conn.close()

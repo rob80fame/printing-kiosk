@@ -1,5 +1,5 @@
 import app
-from backend import config
+import config
 import backend
 import cleanup
 
@@ -9,7 +9,7 @@ import threading
 import sys
 
 
-npm_dir = "C:\\Program Files\\nodejs\\npm.cmd"
+npm_dir = config.npm_dir
 py_dir = sys.executable
 
 processes = []
@@ -39,9 +39,10 @@ def stop_all():
 
 def start_all():
     start_service("npm.cmd start", os.path.join(config.Proj_path, "evolution-api"))
-    start_service("python.exe backend.py", os.path.join(config.Proj_path, "backend"))
+    start_service("python.exe backend.py", config.Proj_path)
     
     print("Servizi avviati. Premi INVIO per chiudere tutto.")
+    
     threading.Thread(target=lambda: [input(), stop_all()], daemon=True).start()
     
     try:

@@ -11,8 +11,11 @@ except Exception:
     sv_ttk = None
 import fitz
 from PIL import Image, ImageTk
+import text_logic
+import config
 
-UNI_PRINTER = "Microsoft Print to PDF"
+
+UNI_PRINTER = config.PRINTER
 COST = 0
 
 # Pricing table (EUR)
@@ -108,20 +111,20 @@ class PDFPrintApp:
         self.copies_var.trace_add('write', lambda *a: self.update_cost())
 
         ttk.Label(controls, text="Modalità colore:").pack(anchor="w", pady=(8, 0))
-        self.mode_var = tk.StringVar(value="Colore")
+        self.mode_var = tk.StringVar(value="Bianco e Nero")
         self.mode_combo = ttk.Combobox(
             controls,
             textvariable=self.mode_var,
-            values=["Colore", "Bianco e Nero"],
+            values=["Bianco e Nero", "Colore"],
             state="readonly",
         )
         self.mode_combo.pack(fill="x", pady=5)
         self.mode_combo.bind('<<ComboboxSelected>>', lambda e: (self.update_cost(), self.render_preview()))
 
         # cartoncino checkbox
-        self.cardstock_var = tk.BooleanVar(value=False)
-        self.cardstock_chk = ttk.Checkbutton(controls, text="Stampa su cartoncino", variable=self.cardstock_var, command=self.update_cost)
-        self.cardstock_chk.pack(anchor="w", pady=(6, 0))
+        #self.cardstock_var = tk.BooleanVar(value=False)
+        #self.cardstock_chk = ttk.Checkbutton(controls, text="Stampa su cartoncino", variable=self.cardstock_var, command=self.update_cost)
+        #self.cardstock_chk.pack(anchor="w", pady=(6, 0))
 
         ttk.Label(controls, text="Pagine da stampare:").pack(anchor="w", pady=(8, 0))
         ttk.Label(controls, text="Esempio: Tutte, 1-3, 5, 7", foreground="#666666").pack(anchor="w")
@@ -569,6 +572,7 @@ class PDFPrintApp:
 
         if kind == "info":
             self.print_status_var.set("Stampa completata. Chiusura in corso...")
+            text_logic.invia_risposta(config.remoteJidAlt,f'ho stampato il file {os.path.basename(self.pdf_path)} per il costo di {COST}€')
             self.root.after(800, self.root.destroy)
         elif kind == "warning":
             self.print_btn.config(state="normal")

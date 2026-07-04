@@ -1,9 +1,9 @@
 evolution-api/
 SumatraPDF-settings.txt
 TODO
-backend/__pycache__/
-backend/DOCUMENTS/
-backend/IMAGES/
+__pycache__/
+DOCUMENTS/
+IMAGES/
 tmp/
-backend/config.py
 dependencies.zip
+config.json

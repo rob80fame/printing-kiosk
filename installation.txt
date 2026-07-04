@@ -6,10 +6,10 @@ API CONFIGURATION
     postgresql-18.4-2 (keep your postgres password)
     clone evolution-api-2.3.7
 
-//install libraries
+//in evolution api install libraries
     npm install
 
-//create .env file as .env.example in evolution-api folder and edit password and api key
+//create .env file as .env.example in evolution-api folder editing password and api key
 
 //create db
     createdb -U postgres evolution
@@ -21,7 +21,6 @@ API CONFIGURATION
 //start api
     npm start
 
-//CHECK THE FOLLOWING
 //go to http://localhost:8080/manager/
 //link your whatsapp
 //events>webhook>Enabled
@@ -48,4 +47,8 @@ BACKEND and CONFIGURATION
     pip install flask psycopg2-binary cryptography requests docx2pdf sv-ttk
     "C:\Program Files\PostgreSQL\18\bin\createdb.exe" -U postgres images
 
-//Rename ex_config.py to config.py and fill in with your data
+//Rename config_example.json to config.json and fill in with your data
+
+//run the following in an administrator cmd
+
+schtasks /create /tn "kiosk_cleanup" /tr "python 'C:\Users\rober\Downloads\printing-kiosk\printing-kiosk\cleanup.py'" /sc daily /st 20:00

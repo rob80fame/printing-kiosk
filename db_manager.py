@@ -17,6 +17,7 @@ def init_db():
                 id SERIAL PRIMARY KEY,
                 sender VARCHAR(255) NOT NULL,
                 code VARCHAR(10),
+                price VARCHAR(10),
                 file_paths JSONB DEFAULT '[]',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );'''
