@@ -1,6 +1,6 @@
 import requests
-import random
 import config
+import cleanup
 
 # Configurazione API
 API_URL = "http://localhost:8080"
@@ -13,9 +13,9 @@ def process_text(data):
     
     print(f"--- [TESTO] Ricevuto: {msg_content} ---")
     
-    if msg_content == "ciao":
-        num = random.randint(100, 999)
-        invia_risposta(mittente, f"Ciao! Il tuo numero è: {num}")
+    if msg_content == "pulisci":
+        cleanup.clean_all()
+        invia_risposta(mittente, f"cleared")
 
 
 def invia_risposta(destinatario, testo):

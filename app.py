@@ -10,10 +10,11 @@ import fitz
 from PIL import Image, ImageTk
 import subprocess
 import sys
+#import print
 # Database configuration
 DB_CONFIG = config.DB_CONFIG
 
-in_t = 50000 #(sec in millisec)
+in_t = 600000 #(sec in millisec)
 
 class FileLookupApp:
     def __init__(self, root):
@@ -25,6 +26,7 @@ class FileLookupApp:
         self.current_code = None
         self.current_files = []
         self.current_file_index = 0
+        self.tprice = tk.StringVar(value="€ 0.00")
 
         self.inactivity_timer = None
 
@@ -127,12 +129,13 @@ class FileLookupApp:
     def search_by_code(self):
         code = self.code_var.get().strip()
         #print(code)
+        self.CURR_CODE = code
         if not code:
             self.status_var.set("Inserisci un codice valido")
             return
         if code == config.sudo:
             self.open_settings_manager()
-            self.code_var = ""
+            self.code_var.set("")
             return
 
         self.status_var.set("Ricerca in corso...")
@@ -141,13 +144,30 @@ class FileLookupApp:
         threading.Thread(target=self._search_worker, args=(code,), daemon=True).start()
     
     def print_current_file(self, file_path=None):
-        try:
-            command = [sys.executable, "print.py", file_path]
-            subprocess.Popen(command) 
-            #messagebox.showinfo("Successo", f"Stampa inviata: {os.path.basename(file_path)}")
+        #try:
+        #print(self.CURR_CODE)
+        command = [sys.executable, "print.py", file_path, self.CURR_CODE]
+        server_proc = subprocess.Popen(command) 
+
+        if server_proc.poll() is not None:
+            code = self.CURR_CODE
+            costt = config.readtmpprice(code)
+            self.tprice.set(costt)
+            #print(self.tprice)
+            #print("Il server è crashato o è stato chiuso!")
+        #messagebox.showinfo("Successo", f"Stampa inviata: {os.path.basename(file_path)}")
         
-        except Exception as e:
-            messagebox.showerror("Errore", f"Impossibile avviare il processo di stampa: {str(e)}")
+        #except Exception as e:
+        #    messagebox.showerror("Errore", f"Impossibile avviare il processo di stampa: {str(e)}")
+
+    def update_price(self):
+        code = self.CURR_CODE
+        costt = config.readtmpprice(code)
+        self.tprice.set(costt)
+
+        # 2. Pianifica la prossima esecuzione tra 3000ms (3 secondi)
+        self.root.after(3000, self.update_price)
+
 
     def show_carousel(self, file_list):
 
@@ -194,19 +214,31 @@ class FileLookupApp:
             try:
                 doc = fitz.open(file_path)
                 pix = doc[0].get_pixmap(matrix=fitz.Matrix(0.3, 0.3)) # Miniatura piccola
-                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 photo = ImageTk.PhotoImage(img)
                 
-                btn = ttk.Button(card, image=photo, command=lambda p=file_path: self.print_current_file_path(p))
-                btn.image = photo
+                # Creazione del bottone
+                btn = ttk.Button(
+                    card, 
+                    image=photo, 
+                    command=lambda p=file_path: self.print_current_file_path(p)
+                )
                 btn.pack()
+
+                btn.image = photo  # type: ignore
+
             except Exception:
                 ttk.Button(card, text="[Anteprima non disp.]", width=15, 
                            command=lambda p=file_path: self.print_current_file_path(p)).pack()
 
             # Nome file (troncato per non rompere il layout)
             name = os.path.basename(file_path)
-            ttk.Label(card, text=name[:15] + "...", font=("Segoe UI", 8)).pack()
+            ttk.Label(card, text=name[:15], font=("Segoe UI", 8)).pack()
+
+        ttk.Label(self.main_frame, textvariable=self.tprice, font=("Segoe UI", 28, "bold")).pack(side="bottom", anchor="w", padx=10, pady=10)
+
+        self.update_price()
+
 
     def print_current_file_path(self, file_path):
         """Metodo richiamato dal bottone di stampa del carousel"""
@@ -235,7 +267,7 @@ class FileLookupApp:
             return
         
         self.status_var.set("Trovato i tuoi file")
-        self.code_var = ""
+        self.code_var.set("")
         
         cursor.close()
         conn.close()

@@ -11,12 +11,11 @@ except Exception:
     sv_ttk = None
 import fitz
 from PIL import Image, ImageTk
-import text_logic
 import config
 
 
 UNI_PRINTER = config.PRINTER
-COST = 0
+USRC = None
 
 # Pricing table (EUR)
 PRICES = {
@@ -57,7 +56,7 @@ def print_with_sumatra(file_path, printer_name, print_settings=""):
     
 
 class PDFPrintApp:
-    def __init__(self, root, pdf_path=None):
+    def __init__(self, root, pdf_path=None, idcode=None):
         self.root = root
         self.root.title("PDF Print Studio")
         self.root.attributes("-fullscreen", True)
@@ -69,12 +68,13 @@ class PDFPrintApp:
         self.pdf_path = None
         self.doc = None
         self.file_var = tk.StringVar(value="Nessun file")
-        self.print_btn = None
+        #self.print_btn = None
         self.is_printing = False
         self.print_status_var = tk.StringVar(value="")
 
         # cost display
         self.cost_var = tk.StringVar(value="€ 0.00")
+        self.idcode = idcode
 
         self.build_ui()
 
@@ -122,9 +122,9 @@ class PDFPrintApp:
         self.mode_combo.bind('<<ComboboxSelected>>', lambda e: (self.update_cost(), self.render_preview()))
 
         # cartoncino checkbox
-        #self.cardstock_var = tk.BooleanVar(value=False)
-        #self.cardstock_chk = ttk.Checkbutton(controls, text="Stampa su cartoncino", variable=self.cardstock_var, command=self.update_cost)
-        #self.cardstock_chk.pack(anchor="w", pady=(6, 0))
+        self.cardstock_var = tk.BooleanVar(value=False)
+        self.cardstock_chk = ttk.Checkbutton(controls, text="Stampa su cartoncino", variable=self.cardstock_var, command=self.update_cost)
+        self.cardstock_chk.pack(anchor="w", pady=(6, 0))
 
         ttk.Label(controls, text="Pagine da stampare:").pack(anchor="w", pady=(8, 0))
         ttk.Label(controls, text="Esempio: Tutte, 1-3, 5, 7", foreground="#666666").pack(anchor="w")
@@ -238,7 +238,7 @@ class PDFPrintApp:
                 frame.pack(pady=5, fill="x")
 
                 label = ttk.Label(frame, image=photo)
-                label.image = photo
+                label.image = photo # type: ignore
                 label.pack()
 
                 page_num = page_numbers[index]
@@ -283,7 +283,7 @@ class PDFPrintApp:
                 frame.pack(pady=5, fill="x")
 
                 label = ttk.Label(frame, image=photo)
-                label.image = photo
+                label.image = photo # type: ignore
                 label.pack()
 
                 left_idx = page_numbers[pair_index]
@@ -329,7 +329,7 @@ class PDFPrintApp:
                 positions = [(0, 0), (tile_w, 0), (0, tile_h), (tile_w, tile_h)]
                 for k, im in enumerate(imgs):
                     if im:
-                        im_resized = im.resize((tile_w, tile_h), Image.LANCZOS)
+                        im_resized = im.resize((tile_w, tile_h), Image.Resampling.LANCZOS)
                         combined.paste(im_resized, positions[k])
 
                 combined.thumbnail((1200, 1000))
@@ -338,7 +338,7 @@ class PDFPrintApp:
                 frame = ttk.Frame(self.preview_container)
                 frame.pack(pady=5, fill="x")
                 label = ttk.Label(frame, image=photo)
-                label.image = photo
+                label.image = photo # type: ignore
                 label.pack()
 
                 selected_group = page_numbers[idx:idx+4]
@@ -430,7 +430,7 @@ class PDFPrintApp:
                     for idx_img, im in enumerate(imgs):
                         col = idx_img % cols
                         row = idx_img // cols
-                        im_resized = im.resize((tile_w, tile_h), Image.LANCZOS)
+                        im_resized = im.resize((tile_w, tile_h), Image.Resampling.LANCZOS)
                         combined.paste(im_resized, (col * tile_w, row * tile_h))
 
                     buf = BytesIO()
@@ -572,7 +572,9 @@ class PDFPrintApp:
 
         if kind == "info":
             self.print_status_var.set("Stampa completata. Chiusura in corso...")
-            text_logic.invia_risposta(config.remoteJidAlt,f'ho stampato il file {os.path.basename(self.pdf_path)} per il costo di {COST}€')
+            tmpcost = self.cost_var.get()
+            tmpid = self.idcode
+            config.registertmpprice(tmpid, tmpcost)
             self.root.after(800, self.root.destroy)
         elif kind == "warning":
             self.print_btn.config(state="normal")
@@ -584,7 +586,7 @@ class PDFPrintApp:
     def on_deletion(self):
         self.root.after(800, self.root.destroy)
 
-def main(pdf_path=None):
+def main(pdf_path=None, code=None):
     root = tk.Tk()
     if sv_ttk is not None:
         sv_ttk.set_theme("light")
@@ -592,7 +594,10 @@ def main(pdf_path=None):
     if pdf_path is None and len(sys.argv) > 1:
         pdf_path = sys.argv[1]
 
-    PDFPrintApp(root, pdf_path=pdf_path)
+    if code is None and len(sys.argv) > 1:
+        code = sys.argv[2]
+
+    PDFPrintApp(root, pdf_path=pdf_path, idcode=code)
     root.mainloop()
 
 

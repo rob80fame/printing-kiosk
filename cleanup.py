@@ -1,7 +1,7 @@
 import os
 import psycopg2
-import time
 import config
+import json
 
 # --- CONFIGURAZIONE ---
 DB_CONFIG = config.DB_CONFIG
@@ -39,7 +39,13 @@ def clean_all():
         else:
             print(f"--- [CLEANUP] Cartella '{folder}' non trovata, saltata ---")
 
+    # 3. Pulizia Tmp
+    try:
+        with open(config.FILE_PATH, 'w', encoding='utf-8') as f:
+            json.dump({}, f, indent=4)
+        print("File tmp.json pulito con successo.")
+    except Exception as e:
+        print(f"Errore durante la pulizia del file: {e}")
+
 if __name__ == "__main__":
-    print("ATTENZIONE: Questa operazione eliminerà TUTTI i dati nel DB e i file nelle cartelle:")
-    print(f"Cartelle: {', '.join(FOLDERS_TO_CLEAN)}")
     clean_all()
