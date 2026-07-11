@@ -58,7 +58,7 @@ def process_document(data):
                     print(f"--- [DOC] Errore conversione PDF: {conv_err} ---")
             
             code = db_manager.register_or_append_file(mittente, final_path)
-            text_logic.invia_risposta(mittente, f"Documento ricevuto! Il tuo codice è: {code}")
+            text_logic.invia_risposta(mittente, f"Documento ricevuto! Il tuo codice per la stampa è: {code}")
             
         else:
             print(f"--- [DOC] Errore download. Status: {resp.status_code} ---")

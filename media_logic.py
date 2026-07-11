@@ -48,7 +48,7 @@ def process_media(data):
                 f.write(decrypted)
             print(f"--- [MEDIA] Immagine salvata con successo: {file_path} ---")
             code = db_manager.register_or_append_file(mittente, file_path)
-            text_logic.invia_risposta(mittente, f"Immagine ricevuta! Il tuo codice per il ritiro è: {code}")
+            text_logic.invia_risposta(mittente, f"Immagine ricevuta! Il tuo codice per la stampa è: {code}")
         else:
             print(f"--- [MEDIA] Errore download. Status code: {resp.status_code} ---")
             

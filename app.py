@@ -70,7 +70,7 @@ class FileLookupApp:
         # Title
         title = ttk.Label(
             container,
-            text="Ricerca File",
+            text="Stampa i tuoi documenti",
             font=("Segoe UI", 32, "bold")
         )
         title.pack(pady=(0, 40))
@@ -78,7 +78,7 @@ class FileLookupApp:
         # Instructions
         instructions = ttk.Label(
             container,
-            text="Inserisci il codice per cercare i file",
+            text="Inserisci il codice fornito",
             font=("Segoe UI", 14),
             foreground="#666666"
         )
