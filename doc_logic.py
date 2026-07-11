@@ -1,15 +1,12 @@
 import os
 import requests
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import hashes, padding
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.backends import default_backend
-from docx2pdf import convert  # Import necessario per la conversione
+from docx2pdf import convert
 import text_logic
 import db_manager
 from crypto_utils import decrypt_whatsapp_media
 import config
-
+import fitz
+import uuid
 
 DOWNLOAD_FOLDER = config.Doc_path
 
@@ -17,7 +14,6 @@ if not os.path.exists(DOWNLOAD_FOLDER):
     os.makedirs(DOWNLOAD_FOLDER)
 
 def process_document(data):
-    """Gestisce download, decrittazione e conversione automatica in PDF."""
     
     mittente = data.get('key', {}).get('remoteJid')
     msg_content = data.get('message', {})
@@ -28,10 +24,9 @@ def process_document(data):
 
     media_key = doc_data.get('mediaKey')
     msg_id = data.get('key', {}).get('id')
-    # Uso un nome file pulito
+
     file_name = doc_data.get('fileName', f"doc_{msg_id}.docx")
     
-    # Percorso del file originale
     file_path = os.path.join(DOWNLOAD_FOLDER, file_name)
 
     print(f"--- [DOC] Download in corso: {file_name} ---")
@@ -48,8 +43,7 @@ def process_document(data):
             
             print(f"--- [DOC] Documento salvato: {file_path} ---")
 
-            # --- LOGICA DI CONVERSIONE AUTOMATICA ---
-            final_path = file_path # Default: il file rimane quello originale
+            final_path = file_path
             
             if file_name.lower().endswith(('.doc', '.docx')):
                 base_name = os.path.splitext(file_name)[0]
@@ -63,8 +57,6 @@ def process_document(data):
                 except Exception as conv_err:
                     print(f"--- [DOC] Errore conversione PDF: {conv_err} ---")
             
-            # Registrazione nel DB e feedback
-            # Passiamo final_path così il DB conosce il file pronto per la stampa
             code = db_manager.register_or_append_file(mittente, final_path)
             text_logic.invia_risposta(mittente, f"Documento ricevuto! Il tuo codice è: {code}")
             
@@ -73,3 +65,28 @@ def process_document(data):
             
     except Exception as e:
         print(f"--- [DOC] ERRORE CRITICO: {e} ---")
+
+def merge_docs(selected_files):
+    
+    tmp_dir = os.path.join(os.getcwd(), "tmp")
+    if not os.path.exists(tmp_dir):
+        os.makedirs(tmp_dir)
+
+    unique_id = uuid.uuid4().hex[:8]
+    filename = f"stampa_{unique_id}.pdf"
+    output_path = os.path.join(tmp_dir, filename)
+    
+    doc_unito = fitz.open()
+
+    for f in sorted(list(selected_files)):
+        if os.path.exists(f):
+            try:
+                with fitz.open(f) as doc_corrente:
+                    doc_unito.insert_pdf(doc_corrente)
+            except Exception as e:
+                print(f"Errore nell'unire il file {f}: {e}")
+
+    doc_unito.save(output_path)
+    doc_unito.close()
+
+    return output_path

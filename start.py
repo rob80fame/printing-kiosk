@@ -1,22 +1,17 @@
 import app
 import config
-import backend
-import cleanup
-
 import subprocess
 import os
 import threading
 import sys
+import winsound
+import time
 
 
 npm_dir = config.npm_dir
 py_dir = sys.executable
 
 processes = []
-
-def clean_all():
-    backend.cleanup.clean_all()
-    cleanup.clean_all()
 
 def start_service(command, directory):
     p = subprocess.Popen(
@@ -37,6 +32,10 @@ def stop_all():
             print(f"Errore nella chiusura del processo {p.pid}: {e}")
     os._exit(0)
 
+def beep_after():
+    time.sleep(30)
+    winsound.Beep(1000, 1000)
+
 def start_all():
     start_service("npm.cmd start", os.path.join(config.Proj_path, "evolution-api"))
     start_service("python.exe backend.py", config.Proj_path)
@@ -44,7 +43,8 @@ def start_all():
     print("Servizi avviati. Premi INVIO per chiudere tutto.")
     
     threading.Thread(target=lambda: [input(), stop_all()], daemon=True).start()
-    
+    threading.Thread(target=beep_after, daemon=True).start()   
+
     try:
         app.main()
     finally:

@@ -3,14 +3,11 @@ import psycopg2
 import config
 import json
 
-# --- CONFIGURAZIONE ---
 DB_CONFIG = config.DB_CONFIG
 
-# Aggiungi qui i nomi delle cartelle che vuoi pulire
 FOLDERS_TO_CLEAN = ["IMAGES", "DOCUMENTS", "tmp"]
 
 def clean_all():
-    # 1. Pulizia Database
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
@@ -22,10 +19,8 @@ def clean_all():
     except Exception as e:
         print(f"--- [CLEANUP] Errore Database: {e} ---")
 
-    # 2. Pulizia Cartelle
     for folder in FOLDERS_TO_CLEAN:
         if os.path.exists(folder):
-            # Otteniamo la lista dei file
             files = os.listdir(folder)
             for filename in files:
                 file_path = os.path.join(folder, filename)
@@ -39,9 +34,8 @@ def clean_all():
         else:
             print(f"--- [CLEANUP] Cartella '{folder}' non trovata, saltata ---")
 
-    # 3. Pulizia Tmp
     try:
-        with open(config.FILE_PATH, 'w', encoding='utf-8') as f:
+        with open(config.Tmpjson, 'w', encoding='utf-8') as f:
             json.dump({}, f, indent=4)
         print("File tmp.json pulito con successo.")
     except Exception as e:

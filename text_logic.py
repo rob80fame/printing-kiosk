@@ -19,7 +19,10 @@ def process_text(data):
 
 
 def invia_risposta(destinatario, testo):
-    url = f"{API_URL}/message/sendText/{INSTANCE}"
-    headers = {"apikey": API_KEY, "Content-Type": "application/json"}
-    requests.post(url, json={"number": destinatario, "text": testo}, headers=headers)
-    print(f"--- [TESTO] Risposta inviata ---")
+    if config.mode == "send":
+        url = f"{API_URL}/message/sendText/{INSTANCE}"
+        headers = {"apikey": API_KEY, "Content-Type": "application/json"}
+        requests.post(url, json={"number": destinatario, "text": testo}, headers=headers)
+        print(f"--- [TESTO] Risposta inviata ---")
+    else:
+        print (f'Volevo mandare a {destinatario} il messaggio {testo} ma mi hai zittito')

@@ -15,9 +15,7 @@ import config
 
 
 UNI_PRINTER = config.PRINTER
-USRC = None
 
-# Pricing table (EUR)
 PRICES = {
     "bw": {"A4": 0.15, "A3": 0.20, "duplex_price": {"A4": 0.20, "A3": 0.30}},
     "color": {"A4": 0.50, "A3": 1.30, "duplex_price": {"A4": 0.75, "A3": 1.95}},
@@ -68,11 +66,9 @@ class PDFPrintApp:
         self.pdf_path = None
         self.doc = None
         self.file_var = tk.StringVar(value="Nessun file")
-        #self.print_btn = None
         self.is_printing = False
         self.print_status_var = tk.StringVar(value="")
 
-        # cost display
         self.cost_var = tk.StringVar(value="€ 0.00")
         self.idcode = idcode
 
@@ -121,7 +117,6 @@ class PDFPrintApp:
         self.mode_combo.pack(fill="x", pady=5)
         self.mode_combo.bind('<<ComboboxSelected>>', lambda e: (self.update_cost(), self.render_preview()))
 
-        # cartoncino checkbox
         self.cardstock_var = tk.BooleanVar(value=False)
         self.cardstock_chk = ttk.Checkbutton(controls, text="Stampa su cartoncino", variable=self.cardstock_var, command=self.update_cost)
         self.cardstock_chk.pack(anchor="w", pady=(6, 0))
@@ -133,7 +128,6 @@ class PDFPrintApp:
         self.pages_entry.pack(fill="x", pady=5)
         self.pages_entry.bind('<KeyRelease>', lambda e: (self.update_cost(), self.render_preview()))
 
-        # plastificazione
         self.plast_var = tk.BooleanVar(value=False)
         self.plast_chk = ttk.Checkbutton(controls, text="Plastificazione (A4/A3)", variable=self.plast_var, command=self.update_cost)
         self.plast_chk.pack(anchor="w", pady=(6, 0))
@@ -170,7 +164,6 @@ class PDFPrintApp:
         self.del_btn.pack(fill="x", pady=20)
         self.del_btn.config(state="enabled")
 
-        # Cost label (updates live)
         ttk.Label(controls, textvariable=self.cost_var, font=("Segoe UI", 28, "bold")).pack(side="bottom", anchor="w", padx=10, pady=10)
 
         preview_frame = ttk.LabelFrame(main, text="Anteprima", padding=10)
@@ -187,7 +180,6 @@ class PDFPrintApp:
         self.preview_container = ttk.Frame(self.canvas)
         self.canvas.create_window((0, 0), window=self.preview_container, anchor="nw")
         self.preview_container.bind("<Configure>", lambda event: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        # mousewheel scrolling when cursor is over canvas
         def _on_mousewheel(event):
             if os.name == 'nt':
                 delta = -1 * (event.delta // 120)
@@ -244,7 +236,6 @@ class PDFPrintApp:
                 page_num = page_numbers[index]
                 ttk.Label(frame, text=f"Pagina {page_num}", foreground="#666666").pack(pady=(4, 0))
         elif layout_two:
-            # two-up: combine pages in pairs side-by-side
             total = len(pages)
             pair_index = 0
             while pair_index < total:
@@ -268,7 +259,6 @@ class PDFPrintApp:
                     else:
                         img2 = None
 
-                # normalize heights
                 h = max(img1.height, img2.height if img2 else 0)
                 w = img1.width + (img2.width if img2 else 0)
                 combined = Image.new("RGB", (w, h), (255, 255, 255))
@@ -292,7 +282,6 @@ class PDFPrintApp:
 
                 pair_index += 2
         else:
-            # four-up: combine pages in 2x2 grid
             total = len(pages)
             idx = 0
             while idx < total:
@@ -316,13 +305,11 @@ class PDFPrintApp:
                         im = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                     imgs.append(im)
 
-                # normalize tile size
                 tile_w = max((im.width for im in imgs if im), default=0)
                 tile_h = max((im.height for im in imgs if im), default=0)
                 if tile_w == 0 or tile_h == 0:
                     break
 
-                # create grid 2x2
                 combined_w = tile_w * 2
                 combined_h = tile_h * 2
                 combined = Image.new("RGB", (combined_w, combined_h), (255, 255, 255))
@@ -350,7 +337,6 @@ class PDFPrintApp:
         self.preview_container.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
-        # Update cost when preview (and page count) changes
         self.update_cost()
 
     def parse_page_selection(self, total_pages):
@@ -454,7 +440,6 @@ class PDFPrintApp:
             output_doc.close()
 
     def compute_cost(self):
-        # Determine page count
         if not self.pdf_path or not os.path.exists(self.pdf_path):
             return 0.0
         with fitz.open(self.pdf_path) as d:
@@ -468,21 +453,18 @@ class PDFPrintApp:
 
         copies = max(1, int(self.copies_var.get() or 1))
 
-        # Determine base price unit
         size = self.format_var.get() or "A4"
         is_color = (self.mode_var.get() == "Colore")
         is_card = bool(self.cardstock_var.get())
         is_duplex = (self.fr_var.get() == "Fronte-Retro")
         layout_two = (self.layout_var.get() == "Due per foglio")
 
-        # pages per physical sheet (for preview/layout)
         layout_four = (self.layout_var.get() == "Quattro per foglio")
         pages_per_sheet = 2 if layout_two else 4 if layout_four else 1
         if is_duplex:
             pages_per_sheet *= 2
         sheets_per_copy = (pages_to_print + pages_per_sheet - 1) // pages_per_sheet
 
-        # determine unit price (page and duplex prices)
         if is_card:
             key = f"{size}_color" if is_color else f"{size}_bw"
             if key == "A4_color":
@@ -511,7 +493,6 @@ class PDFPrintApp:
         else:
             base_cost = page_price * pages_to_print * copies
 
-        # plastificazione cost per sheet if requested
         plast_cost = 0.0
         if self.plast_var.get():
             lam_price = PRICES["lamination"].get(size, PRICES["lamination"]["A4"])

@@ -5,7 +5,6 @@ import doc_logic
 
 
 app = Flask(__name__)
-## TODOS? switch to waitress
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -16,13 +15,10 @@ def webhook():
     data = payload.get('data', {})
     msg_type = data.get('messageType')
 
-    # SMISTAMENTO
     if msg_type == 'conversation':
-        # Manda al gestore testi
         text_logic.process_text(data)
         
     if msg_type == 'imageMessage':
-        # Manda al gestore media
         media_logic.process_media(data)
 
     elif msg_type == 'documentMessage':

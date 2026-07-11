@@ -3,16 +3,12 @@ import json
 import random
 import config
 
-# 1. Configurazioni in alto
 DB_CONFIG = config.DB_CONFIG
 
-# 2. DEFINIZIONE DELLA FUNZIONE (Deve stare qui, SOPRA le altre)
 def get_connection():
     return psycopg2.connect(**DB_CONFIG)
 
-# 3. Funzioni che chiamano get_connection()
 def init_db():
-    # Qui inseriamo tutte le colonne reali, senza puntini
     query = '''CREATE TABLE IF NOT EXISTS orders (
                 id SERIAL PRIMARY KEY,
                 sender VARCHAR(255) NOT NULL,
@@ -28,24 +24,17 @@ def init_db():
             conn.commit()
 
 def register_or_append_file(sender, file_path):
-    """
-    Gestisce l'inserimento o l'aggiornamento automatico.
-    Restituisce il codice associato all'utente.
-    """
     conn = get_connection()
     cur = conn.cursor()
     
-    # 1. Verifica se il numero è già "registrato" (ha un ordine aperto)
-    # Ordiniamo per ID decrescente per prendere l'ultimo inserito
     cur.execute("SELECT id, code FROM orders WHERE sender = %s ORDER BY id DESC LIMIT 1", (sender,))
     row = cur.fetchone()
     
     code = None
     
     if row:
-        # CASO ESISTE: Aggiorna l'array JSON
         order_id = row[0]
-        code = row[1] # Manteniamo lo stesso codice
+        code = row[1]
         
         cur.execute("""
             UPDATE orders 
@@ -56,7 +45,6 @@ def register_or_append_file(sender, file_path):
         print(f"--- [DB] File aggiunto all'ordine esistente {order_id} ---")
         
     else:
-        # CASO NON ESISTE: Crea nuova entry
         code = str(random.randint(1000, 9999))
         
         cur.execute("""

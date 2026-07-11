@@ -10,11 +10,13 @@ import fitz
 from PIL import Image, ImageTk
 import subprocess
 import sys
-#import print
-# Database configuration
+import time
+from typing import Optional
+from doc_logic import merge_docs
+
 DB_CONFIG = config.DB_CONFIG
 
-in_t = 600000 #(sec in millisec)
+in_t = config.in_t
 
 class FileLookupApp:
     def __init__(self, root):
@@ -28,6 +30,12 @@ class FileLookupApp:
         self.current_file_index = 0
         self.tprice = tk.StringVar(value="€ 0.00")
 
+        self.selected_files = set()
+        self.is_selection_mode = False
+        
+        self.price_label_widget: Optional[ttk.Label] = None
+        self.title_label: Optional[ttk.Label] = None
+        self.btn_print_multi: Optional[ttk.Button] = None
         self.inactivity_timer = None
 
         self.build_ui()
@@ -42,13 +50,11 @@ class FileLookupApp:
         self.inactivity_timer = self.root.after(in_t, self.show_code_input_screen)
 
     def stop_inactivity_timer(self):
-        """Ferma il timer esistente"""
-        if self.inactivity_timer:
+        if getattr(self, 'inactivity_timer', None) is not None:
             self.root.after_cancel(self.inactivity_timer)
             self.inactivity_timer = None
 
     def reset_inactivity_timer(self, event=None):
-        """Resetta il timer (chiamato ad ogni interazione)"""
         self.start_inactivity_timer()
     
     def show_code_input_screen(self):
@@ -128,7 +134,6 @@ class FileLookupApp:
 
     def search_by_code(self):
         code = self.code_var.get().strip()
-        #print(code)
         self.CURR_CODE = code
         if not code:
             self.status_var.set("Inserisci un codice valido")
@@ -137,6 +142,9 @@ class FileLookupApp:
             self.open_settings_manager()
             self.code_var.set("")
             return
+        elif code == config.shutp:
+            self.root.destroy()
+            return
 
         self.status_var.set("Ricerca in corso...")
         self.root.update()
@@ -144,8 +152,6 @@ class FileLookupApp:
         threading.Thread(target=self._search_worker, args=(code,), daemon=True).start()
     
     def print_current_file(self, file_path=None):
-        #try:
-        #print(self.CURR_CODE)
         command = [sys.executable, "print.py", file_path, self.CURR_CODE]
         server_proc = subprocess.Popen(command) 
 
@@ -153,42 +159,86 @@ class FileLookupApp:
             code = self.CURR_CODE
             costt = config.readtmpprice(code)
             self.tprice.set(costt)
-            #print(self.tprice)
-            #print("Il server è crashato o è stato chiuso!")
-        #messagebox.showinfo("Successo", f"Stampa inviata: {os.path.basename(file_path)}")
         
-        #except Exception as e:
-        #    messagebox.showerror("Errore", f"Impossibile avviare il processo di stampa: {str(e)}")
-
     def update_price(self):
         code = self.CURR_CODE
         costt = config.readtmpprice(code)
         self.tprice.set(costt)
 
-        # 2. Pianifica la prossima esecuzione tra 3000ms (3 secondi)
         self.root.after(3000, self.update_price)
 
+    def on_press(self, file_path):
+        self.start_time = time.time()
+        self.long_press_timer = self.root.after(800, lambda: self.activate_selection_mode())
 
+    def activate_selection_mode(self):
+        self.is_selection_mode = True
+        
+        if self.btn_print_multi and self.price_label_widget:
+            self.btn_print_multi.pack(pady=10, before=self.price_label_widget)
+            
+        if self.title_label:
+            self.title_label.config(text="Seleziona i file da stampare")
+
+    def on_release(self, file_path, card):
+        if self.long_press_timer:
+            self.root.after_cancel(self.long_press_timer)
+            self.long_press_timer = None
+
+        if self.is_selection_mode:
+            self.toggle_selection(file_path, card)
+        else:
+            if time.time() - self.start_time < 0.5:
+                self.print_current_file_path(file_path)
+
+    def toggle_selection(self, file_path, card):
+        if file_path in self.selected_files:
+            self.selected_files.remove(file_path)
+            card.configure(style="Normal.TFrame")
+        else:
+            self.selected_files.add(file_path)
+            card.configure(style="Selected.TFrame")
+
+    def print_multiple_files(self):
+        filelist = self.selected_files
+        tmpfile = merge_docs(filelist)
+        self.print_current_file_path(tmpfile)
+
+    def execute_multi_print(self):
+        self.print_multiple_files()
+        
+        self.is_selection_mode = False
+        self.selected_files.clear()
+        
+        if self.btn_print_multi is not None:
+            self.btn_print_multi.pack_forget()
+        
+        if self.title_label is not None:
+            self.title_label.config(text="File trovati")
+    
+    def torna_indietro_al_codice(self):
+        self.selected_files.clear()
+        self.show_code_input_screen()
+            
     def show_carousel(self, file_list):
-
         self.clear_main_frame()
-        
-        # Avvia il monitoraggio dell'inattività appena entri nel carousel
+
         self.start_inactivity_timer()
-        
-        # Se l'utente muove il mouse o clicca, resetta il timer
         self.main_frame.bind_all("<Motion>", self.reset_inactivity_timer)
         self.main_frame.bind_all("<Button-1>", self.reset_inactivity_timer)
 
-        # --- Aggiunta Pulsante Back ---
-        back_btn = ttk.Button(self.main_frame, text="← Torna al Codice", 
-                              command=self.show_code_input_screen)
+        style = ttk.Style()
+        style.configure("Normal.TFrame", background="#f0f0f0")
+        style.configure("Selected.TFrame", background="#a8d8ff")
+
+        # Back
+        back_btn = ttk.Button(self.main_frame, text="← Torna al Codice", command=self.show_code_input_screen)
         back_btn.pack(anchor="nw", padx=10, pady=10)
         
-        # Titolo
+        # Title
         ttk.Label(self.main_frame, text="File trovati", font=("Segoe UI", 20, "bold")).pack(pady=10)
 
-        # Scrollbar e Canvas per la griglia
+        # Scrollbar and Canvas
         canvas = tk.Canvas(self.main_frame, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.main_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
@@ -200,48 +250,56 @@ class FileLookupApp:
         canvas.pack(side="left", fill="both", expand=True, padx=10)
         scrollbar.pack(side="right", fill="y")
 
-        # Griglia 4 colonne
+        # 4 column
         cols = 4
+
         for i, file_path in enumerate(file_list):
+            name = os.path.basename(file_path)
             row = i // cols
             col = i % cols
             
-            # Card per ogni file
-            card = ttk.Frame(scrollable_frame, padding=5)
+            card = ttk.Frame(scrollable_frame, padding=5, style="Normal.TFrame")
             card.grid(row=row, column=col, padx=5, pady=5)
 
-            # Anteprima
+            def toggle_select(event, c=card, p=file_path):
+                if p in self.selected_files:
+                    self.selected_files.remove(p)
+                    c.configure(style="Normal.TFrame")
+                else:
+                    self.selected_files.add(p)
+                    c.configure(style="Selected.TFrame")
+
             try:
                 doc = fitz.open(file_path)
-                pix = doc[0].get_pixmap(matrix=fitz.Matrix(0.3, 0.3)) # Miniatura piccola
+                pix = doc[0].get_pixmap(matrix=fitz.Matrix(0.3, 0.3))
                 img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 photo = ImageTk.PhotoImage(img)
                 
-                # Creazione del bottone
-                btn = ttk.Button(
-                    card, 
-                    image=photo, 
-                    command=lambda p=file_path: self.print_current_file_path(p)
-                )
-                btn.pack()
-
-                btn.image = photo  # type: ignore
-
+                lbl_preview = ttk.Label(card, image=photo, cursor="hand2")
+                lbl_preview.image = photo # type: ignore
+                lbl_preview.pack()
+                lbl_preview.bind("<ButtonPress-1>", lambda e, p=file_path: self.on_press(p))
+                lbl_preview.bind("<ButtonRelease-1>", lambda e, p=file_path, c=card: self.on_release(p, c))            
             except Exception:
-                ttk.Button(card, text="[Anteprima non disp.]", width=15, 
-                           command=lambda p=file_path: self.print_current_file_path(p)).pack()
+                ttk.Label(card, text="[Err]", width=15).pack()
 
-            # Nome file (troncato per non rompere il layout)
-            name = os.path.basename(file_path)
-            ttk.Label(card, text=name[:15], font=("Segoe UI", 8)).pack()
+            # Filename
+            lbl_name = ttk.Label(card, text=name[:15], font=("Segoe UI", 8), background="#f0f0f0")
+            lbl_name.pack()
 
-        ttk.Label(self.main_frame, textvariable=self.tprice, font=("Segoe UI", 28, "bold")).pack(side="bottom", anchor="w", padx=10, pady=10)
+            card.bind("<Button-1>", toggle_select)
+            lbl_name.bind("<Button-1>", toggle_select)
 
+        # Footer price
+        self.price_label_widget = ttk.Label(self.main_frame, textvariable=self.tprice, font=("Segoe UI", 28, "bold"))
+        self.price_label_widget.pack(side="bottom", anchor="w", padx=10, pady=10)
+
+        # Print selected button
+        self.btn_print_multi = ttk.Button(self.main_frame, text="Stampa Selezionati", command=self.execute_multi_print)
+        
         self.update_price()
 
-
     def print_current_file_path(self, file_path):
-        """Metodo richiamato dal bottone di stampa del carousel"""
         self.current_files = [file_path]
         self.current_file_index = 0
         self.print_current_file(file_path)
@@ -275,10 +333,8 @@ class FileLookupApp:
         if results:
             record = results[0]
             
-            #code = record['code']
             file_list = record['file_paths']
             self.show_carousel(file_list)
-            #return file_list
 
 
 def main():

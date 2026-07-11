@@ -5,5 +5,8 @@
     "phonenum": "your phone number alltogheter with the prefix, without the +",
     "apikey": "your api key",
     "Printer": "Microsoft Print to PDF",
-    "sudo": "your code to access control panel"
+    "sudo": "your code to access control panel",
+    "shutp": "your code to close the application",
+    "mode": "silence/send to enable message sending",
+    "inactivity_t": 600000
 }

@@ -1,10 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-import win32print  # Per elencare le stampanti
+import win32print
 import sv_ttk
 import json
 import cleanup
 import os
+import psutil
 
 
 class PrinterSetupApp:
@@ -16,17 +17,16 @@ class PrinterSetupApp:
         self.root.bind("<Escape>", lambda event: self.root.destroy())
         sv_ttk.set_theme("light")
         
-        # Unico contenitore principale
         self.main_frame = ttk.Frame(self.root, padding=20)
         self.main_frame.pack(fill="both", expand=True)
 
-        # Bottone Chiudi
+        # Close button
         ttk.Button(self.main_frame, text="✕ Chiudi", command=root.destroy).pack(anchor="nw")
 
-        # Titolo
+        # Title
         ttk.Label(self.main_frame, text="Configurazione Parametri", font=("Segoe UI", 16, "bold")).pack(pady=10)
 
-        # Selezione Stampante
+        # Select Printer
         ttk.Label(self.main_frame, text="Seleziona Stampante:").pack(pady=(10, 0))
         self.printer_var = tk.StringVar()
         self.combo_printers = ttk.Combobox(self.main_frame, textvariable=self.printer_var, state="readonly")
@@ -37,7 +37,7 @@ class PrinterSetupApp:
         except:
             pass
 
-        # Creazione dei 5 campi richiesti
+        # 5 required fields
         self.fields = {} 
         labels = ["Password (pass)", "Directory NPM (npmdir)", "Nome (name)", "Numero Telefono (phonenum)", "API Key (apikey)"]
         keys = ["pass", "npmdir", "name", "phonenum", "apikey"]
@@ -45,19 +45,16 @@ class PrinterSetupApp:
         for label_text, key in zip(labels, keys):
             ttk.Label(self.main_frame, text=label_text).pack(anchor="w", padx=20)
             var = tk.StringVar()
-            # Se è il campo password, potresti voler aggiungere show="*"
-            show_char = "*" if key == "pass" else ""
+            show_char = ""
             entry = ttk.Entry(self.main_frame, textvariable=var, show=show_char)
             entry.pack(fill="x", padx=20, pady=(0, 10))
             self.fields[key] = var
 
-        # Bottoni Azioni
+        # Buttons
         ttk.Button(self.main_frame, text="Cancella dati temporanei", command=self.do_extra_action).pack(fill="x", pady=5)
         ttk.Button(self.main_frame, text="Salva Configurazione", style="Accent.TButton", command=self.save).pack(fill="x", pady=10)
 
-
     def get_printers(self):
-        """Recupera la lista delle stampanti installate"""
         printers = [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
         return printers
 
@@ -68,7 +65,6 @@ class PrinterSetupApp:
     def save(self):
         config_path = 'config.json'
         
-        # 1. Carica la configurazione attuale se esiste, altrimenti inizializza un dizionario vuoto
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 try:
@@ -78,22 +74,29 @@ class PrinterSetupApp:
         else:
             data = {}
 
-        # 2. Aggiorna la stampante
         data['Printer'] = self.printer_var.get()
 
-        # 3. Aggiorna gli altri campi solo se il valore nell'Entry non è vuoto
         for key, var in self.fields.items():
             valore_inserito = var.get().strip()
-            if valore_inserito:  # Se la stringa non è vuota
+            if valore_inserito: 
                 data[key] = valore_inserito
 
-        # 4. Salva il file aggiornato
         try:
             with open(config_path, 'w') as f:
                 json.dump(data, f, indent=4)
             messagebox.showinfo("Successo", "Configurazione salvata correttamente!")
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile salvare il file: {e}")
+    
+    def exit_all(self):
+        for widget in self.root.winfo_children():
+            if isinstance(widget, tk.Toplevel):
+                widget.destroy()
+        self.root.destroy()
+        parent = psutil.Process(os.getpid())
+        for child in parent.children(recursive=True):
+            child.kill()
+        os._exit(0)
 
 if __name__ == "__main__":
     root = tk.Tk()
