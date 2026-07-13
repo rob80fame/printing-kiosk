@@ -6,6 +6,7 @@ import json
 import cleanup
 import os
 import psutil
+import winsound
 
 
 class PrinterSetupApp:
@@ -39,8 +40,8 @@ class PrinterSetupApp:
 
         # 5 required fields
         self.fields = {} 
-        labels = ["Password (pass)", "Directory NPM (npmdir)", "Nome (name)", "Numero Telefono (phonenum)", "API Key (apikey)"]
-        keys = ["pass", "npmdir", "name", "phonenum", "apikey"]
+        labels = ["Password (pass)", "Directory NPM (npmdir)", "Nome (name)", "Numero Telefono (phonenum)", "API Key (apikey)", "Mode(silence/send)"]
+        keys = ["pass", "npmdir", "name", "phonenum", "apikey", "mode"]
 
         for label_text, key in zip(labels, keys):
             ttk.Label(self.main_frame, text=label_text).pack(anchor="w", padx=20)
@@ -84,9 +85,10 @@ class PrinterSetupApp:
         try:
             with open(config_path, 'w') as f:
                 json.dump(data, f, indent=4)
-            messagebox.showinfo("Successo", "Configurazione salvata correttamente!")
+            winsound.Beep(800, 150)
+            winsound.Beep(1200, 300)
         except Exception as e:
-            messagebox.showerror("Errore", f"Impossibile salvare il file: {e}")
+            winsound.Beep(400, 500)
     
     def exit_all(self):
         for widget in self.root.winfo_children():
