@@ -66,27 +66,44 @@ def process_document(data):
     except Exception as e:
         print(f"--- [DOC] ERRORE CRITICO: {e} ---")
 
-def merge_docs(selected_files):
-    
+
+def merge_docs(file_list):
     tmp_dir = os.path.join(os.getcwd(), "tmp")
     if not os.path.exists(tmp_dir):
         os.makedirs(tmp_dir)
 
     unique_id = uuid.uuid4().hex[:8]
-    filename = f"stampa_{unique_id}.pdf"
-    output_path = os.path.join(tmp_dir, filename)
+    output_path = os.path.join(tmp_dir, f"stampa_{unique_id}.pdf")
     
     doc_unito = fitz.open()
 
-    for f in sorted(list(selected_files)):
-        if os.path.exists(f):
-            try:
-                with fitz.open(f) as doc_corrente:
-                    doc_unito.insert_pdf(doc_corrente)
-            except Exception as e:
-                print(f"Errore nell'unire il file {f}: {e}")
+    for f in sorted(list(file_list)):
+        if not os.path.exists(f):
+            continue
+            
+        ext = os.path.splitext(f)[1].lower()
+        
+        try:
+            if ext == ".pdf":
+                with fitz.open(f) as doc:
+                    doc_unito.insert_pdf(doc)
+            
+            elif ext in [".jpg", ".jpeg", ".png", ".bmp"]:
+                img_doc = fitz.open()
+                img = fitz.open(f)
+                rect = img[0].rect
+                pdfbytes = img.convert_to_pdf()
+                img_pdf = fitz.open("pdf", pdfbytes)
+                doc_unito.insert_pdf(img_pdf)
+                img.close()
+                img_doc.close()
+            
+            else:
+                print(f"Formato non supportato: {ext}")
+                
+        except Exception as e:
+            print(f"Errore durante l'elaborazione di {f}: {e}")
 
     doc_unito.save(output_path)
     doc_unito.close()
-
     return output_path

@@ -98,7 +98,7 @@ class PDFPrintApp:
         controls = ttk.LabelFrame(main, text="Configurazione", padding=15, width=380)
         controls.pack(side="left", fill="y", padx=(0, 20), ipadx=15)
 
-        ttk.Label(controls, textvariable=self.file_var, wraplength=220, justify="left").pack(fill="x", pady=(0, 8))
+        #ttk.Label(controls, textvariable=self.file_var, wraplength=220, justify="left").pack(fill="x", pady=(0, 8))
 
         ttk.Label(controls, text="Numero di copie:").pack(anchor="w", pady=(8, 0))
         self.copies_var = tk.IntVar(value=1)
