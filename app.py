@@ -175,7 +175,7 @@ class FileLookupApp:
         self.is_selection_mode = True
         
         if self.btn_print_multi and self.price_label_widget:
-            self.btn_print_multi.pack(pady=10, before=self.price_label_widget)
+            self.btn_print_multi.pack(side="bottom", anchor="center", pady=10, padx=20)
             
         if self.title_label:
             self.title_label.config(text="Seleziona i file da stampare")
@@ -238,6 +238,12 @@ class FileLookupApp:
         # Title
         ttk.Label(self.main_frame, text="File trovati", font=("Segoe UI", 20, "bold")).pack(pady=10)
 
+        style = ttk.Style()
+        style.configure("LargeAccent.TButton", font=("Segoe UI", 25, "bold"), padding=15)
+
+        self.btn_multi = ttk.Button(self.main_frame, text="Selezione multipla", command=self.activate_selection_mode, style="Large.TButton")
+        self.btn_multi.pack(pady=10)
+
         # Scrollbar and Canvas
         canvas = tk.Canvas(self.main_frame, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.main_frame, orient="vertical", command=canvas.yview)
@@ -294,9 +300,7 @@ class FileLookupApp:
         self.price_label_widget = ttk.Label(self.main_frame, textvariable=self.tprice, font=("Segoe UI", 28, "bold"))
         self.price_label_widget.pack(side="bottom", anchor="w", padx=10, pady=10)
 
-        # Print selected button
-        self.btn_print_multi = ttk.Button(self.main_frame, text="Stampa Selezionati", command=self.execute_multi_print)
-        
+        self.btn_print_multi = ttk.Button(self.main_frame, text="Stampa Selezionati", command=self.execute_multi_print, style="Accent.TButton")        
         self.update_price()
 
     def print_current_file_path(self, file_path):
