@@ -16,26 +16,13 @@ API CONFIGURATION
 
 //initialize db
     npx prisma migrate deploy --schema ./prisma/postgresql-schema.prisma
-    "C:\Program Files\PostgreSQL\18\bin\createdb.exe" -U postgres evolution
 
 //start api
     npm start
 
 //go to http://localhost:8080/manager/
 //link your whatsapp
-//events>webhook>Enabled
-//URL > http://127.0.0.1:8080/webhook
-//Webhook Base64 > true
-//Events> MESSAGES_UPSERT and SEND_MESSAGE > true
-//SAVE
-
-//CONFIGURATIONS
-//Reject Calls > true
-//Ignore Groups > true
-//Always Online > true
-//Read Messages > true
-//Sync full history > false
-//Read status > false
+//wait user input
 
 BACKEND and CONFIGURATION
 
