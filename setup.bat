@@ -5,6 +5,11 @@
 echo --- Inizio Setup Kiosk ---
 echo.
 
+winget install --id Git.Git -e --source winget
+git clone https://github.com/rob80fame/printing-kiosk.git
+cd printing-kiosk
+
+
 :: 1. Installazione Software Base via Winget
 echo [1/3] Installazione dipendenze di sistema...
 winget install --id OpenJS.NodeJS.LTS -e --source winget
