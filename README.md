@@ -26,5 +26,6 @@ The Printing Kiosk System is designed to provide an automated, self-service prin
 To install on a Linux system just modify the config.json with your datas and run start.sh file, it will install and configure all by itself
 
 ## Credits
-*   **WhatsApp API**: [Evolution API](https://github.com/evolution-foundation/evolution-api)[cite: 1].
-*   **UI Framework**: [NiceGUI](https://nicegui.io/)[cite: 1].
+*   **WhatsApp API**: [Evolution API](https://github.com/evolution-foundation/evolution-api).
+*   **UI Framework**: [NiceGUI](https://nicegui.io/).
+*   Gemini & Copilot as coding companion
