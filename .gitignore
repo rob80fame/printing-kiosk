@@ -1,9 +1,9 @@
 evolution-api/
-SumatraPDF-settings.txt
 __pycache__/
 DOCUMENTS/
 IMAGES/
 tmp/
 config.json
 tmp.json
-NiceGUIPrintingKiosk/
+SumatraPDF.exe
+SumatraPDF-settings.txt

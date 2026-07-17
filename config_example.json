@@ -8,5 +8,10 @@
     "sudo": "your code to access control panel",
     "shutp": "your code to close the application",
     "mode": "silence/send to enable message sending",
-    "inactivity_t": 600000
+    "prices" : {
+                "bw": {"A4": 0.15, "A3": 0.20, "duplex_price": {"A4": 0.20, "A3": 0.30}},
+                "color": {"A4": 0.50, "A3": 1.30, "duplex_price": {"A4": 0.75, "A3": 1.95}},
+                "card": {"A4_bw": 0.50, "A3_bw": 0.80, "A4_color": 1.00, "A3_color": 2.00},
+                "lamination": {"A4": 1.00, "A3": 1.60}
+                }
 }
