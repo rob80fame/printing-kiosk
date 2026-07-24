@@ -405,11 +405,15 @@ class PrintingKiosk:
 
                 # --- LATO DESTRO (Anteprima) ---
                 with splitter.after:
-                    # Rimosso justify-center che schiacciava il contenuto
-                    with ui.column().classes('w-full h-full bg-gray-100 p-6 overflow-y-auto items-center'):
-                        ui.label("Anteprima").classes('text-2xl font-bold mb-4 self-start')
-                        # Salvato in self per update_ui_elements
-                        self.preview_area = ui.column().classes('w-full items-center')
+                    # Contenitore principale a blocco fisso
+                    with ui.column().classes('w-full h-full bg-gray-100 p-6 overflow-hidden'):
+                        # Titolo fisso in alto (non scorre via)
+                        ui.label("Anteprima").classes('text-2xl font-bold mb-4 shrink-0')
+                        
+                        # Area di scorrimento dedicata al touch per la preview
+                        with ui.scroll_area().classes('w-full h-full'):
+                            # Salvato in self per update_ui_elements e popolamento dinamico
+                            self.preview_area = ui.column().classes('w-full items-center')
 
         # Trigger iniziale
         ui.timer(0.1, self.update_ui_elements, once=True)
@@ -729,4 +733,4 @@ def index():
     app_instance.render_login(main_container)
 
 
-ui.run(host='0.0.0.0', port=7777, title="Printing Kiosk", fullscreen=True)
+ui.run(host='0.0.0.0', port=7777, title="Printing Kiosk", show=False)
