@@ -1,43 +1,31 @@
-# printing-kiosk
-This project aims to modernize manual copy shop operations by offloading document reception and print configuration to an automated system. By separating the Backend (Bot) from the Frontend (Kiosk), the system remains modular, scalable, and easy to maintain.
+# Printing Kiosk System
 
-# Architecture
-The system is built on a decoupled architecture:
+## Goal
+The Printing Kiosk System is designed to provide an automated, self-service printing solution. The primary goal is to allow users to send documents via WhatsApp, which the system automatically processes, converts to PDF, and sends to the printer without requiring manual intervention. It is optimized for efficient operation on Linux systems such as Lubuntu.
 
-Backend: A Python-based bot that handles WhatsApp communication via the Evolution API.
+## Key Functionalities
+*   **WhatsApp Integration**: Leverages the Evolution API to receive documents directly from WhatsApp chats.
+*   **Automated Document Conversion**: Converts DOCX files to PDF using LibreOffice or Word in headless mode.
+*   **Native Printing**: Utilizes the Linux CUPS printing system or SumatraPDF for reliable and native document output.
+*   **User Interface**: Features a modern, web-based UI built with NiceGUI, running in Kiosk mode for a secure, distraction-free environment.
+*   **Maintenance**: When sudo code is inputed a maintenance ui appears to change configuration, close the app and clear all files and databases.
+*   **Turnoff**: When shutp mode is inputed it shuts the backend down.
+*   **Database**: Stores transaction history and image references using PostgreSQL.
+*   **Remote Access**: It can be accessed from 7777 port of your computer ip
 
-Database: A central database acts as the bridge between the Backend and Frontend.
+## Tech Stack
+*   **Operating System**: Lubuntu or Windows
+*   **Backend**: Python (Flask)
+*   **Frontend**: NiceGUI
+*   **WhatsApp API**: Evolution API (Node.js)
+*   **Office Suite**: LibreOffice (headless) or Microsoft Word
+*   **Printing**: CUPS (Common Unix Printing System) or SumatraPDF --silent
+*   **Database**: PostgreSQL
 
-Frontend: A Kiosk-specific interface that retrieves user files based on a unique code and facilitates the print process.
+## Installation
+To install on a Linux system just modify the config.json with your datas and run start.sh file, it will install and configure all by itself
 
-# Backend (The WhatsApp Bot)
-
-Message Processing: Intercepts incoming messages and documents from WhatsApp.
-Automatic Media Handling: Downloads, decrypts, and categorizes documents/images into local storage.
-Session Management: Generates a unique, short-lived code for every user session.
-Database Integration: Maps WhatsApp JIDs (phone numbers) to document paths and generated codes.
-User Feedback: Automatically replies to the user with the generated code required for printing.
-
-# Frontend (The Kiosk Interface)
-Code Authentication: Users input their unique code to retrieve their files.
-Preview & Pricing: Real-time preview of the document and dynamic cost calculation based on a predefined price list.
-Print Configuration:
-Color mode: Color vs. Black & White.
-Format: A4, A3, etc.
-Duplex: Front only vs. Double-sided (Both sides).
-Layout: Number of pages per sheet.
-Automated Dispatch: Once settings are confirmed, the system interfaces with SumatraPDF printer drivers to execute the print job.
-
-# Workflow
-User sends a file via WhatsApp.
-Backend processes the file, saves it, generates a code, and replies via WhatsApp.
-User visits the Kiosk, enters the code on the Frontend.
-Frontend fetches the file details from the Database, calculates the price, and displays an interactive print settings panel.
-User configures the print job and confirms.
-System prints the document.
-
-Backend: [Active/In-Progress]
-
-Frontend: [Active/In-Progress]
-
-This project is designed to minimize manual interaction at the front desk, allowing staff to focus on high-value tasks rather than file management and formatting.
+## Credits
+*   **WhatsApp API**: [Evolution API](https://github.com/evolution-foundation/evolution-api).
+*   **UI Framework**: [NiceGUI](https://nicegui.io/).
+*   Gemini & Copilot as coding companion
