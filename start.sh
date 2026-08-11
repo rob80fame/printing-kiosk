@@ -5,6 +5,29 @@ POSTGRESQL_PASS=$(jq -r '.pass' config.json)
 API_KEY=$(jq -r '.apikey' config.json)
 SCRIPT_DIR="$(dirname "$0")"
 
+# Entra nella cartella dello script
+cd "$SCRIPT_DIR"
+
+# Controlla se è un repository Git valido
+if [ -d ".git" ]; then
+    echo "Controllo aggiornamenti via Git..."
+    
+    # Aggiorna le informazioni dal remote senza applicarle subito
+    git fetch origin main -q
+    
+    # Confronta il commit locale con quello remoto
+    LOCAL=$(git rev-parse HEAD)
+    REMOTE=$(git rev-parse origin/main)
+    
+    if [ "$LOCAL" != "$REMOTE" ]; then
+        echo "Trovato un aggiornamento su GitHub! Applicazione in corso..."
+        git pull origin main
+        echo "Aggiornamento completato con successo."
+    else
+        echo "Il software è già aggiornato all'ultima versione."
+    fi
+fi
+
 # Controllo se il file esiste
 if [ -f "installed" ]; then
     echo "Il file '$FLAG_FILE' è presente. Avvio del programma..."
