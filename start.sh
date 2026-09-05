@@ -43,20 +43,13 @@ fi
 if [ -f "$SCRIPT_DIR/$FLAG_FILE" ]; then
     echo "Il file '$FLAG_FILE' è presente. Avvio del programma..."
 
-    if command -v pm2 >/dev/null 2>&1; then
-        pm2 start "$SCRIPT_DIR/backend.py" --interpreter python3 --name KioskBackend || true
-        pm2 start "$SCRIPT_DIR/app.py" --interpreter python3 --name KioskFrontend || true
-    else
         python3 "$SCRIPT_DIR/backend.py" &
-        python3 "$SCRIPT_DIR/app.py" &
-    fi
+        python3 "$SCRIPT_DIR/app.py"
 
 else
     echo "Il file '$FLAG_FILE' non esiste. Avvio procedura di installazione..."
 
     sudo apt-get update -y
-    sudo apt-get upgrade -y
-
     # POSTGRESQL
     sudo apt-get install -y postgresql postgresql-contrib
     sudo service postgresql start
@@ -73,28 +66,80 @@ else
 
     # NVM / Node
     sudo apt-get install -y curl
-    if [ ! -d "$HOME/.nvm" ]; then
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
-    fi
-    if [ -s "$HOME/.nvm/nvm.sh" ]; then
-        # shellcheck disable=SC1090
-        . "$HOME/.nvm/nvm.sh"
-    fi
-    nvm install v20.10.0
-    nvm use v20.10.0
+    git clone https://github.com/evolution-foundation/evolution-api.git "$SCRIPT_DIR/evolution-api"
 
-    # EVOLUTION API
-    if [ ! -d "$SCRIPT_DIR/evolution-api" ]; then
-        git clone -b v2.0.0 https://github.com/evolution-foundation/evolution-api.git "$SCRIPT_DIR/evolution-api"
-    fi
     cd "$SCRIPT_DIR/evolution-api"
-    npm install || true
-    # Modify .env.example and copy to .env
-    if [ -f ".env.example" ]; then
-        sed -i "s|YOUR_CUSTOM_API_KEY|$API_KEY|g" .env.example || true
-        sed -i "s|PASS|$POSTGRESQL_PASS|g" .env.example || true
-        cp .env.example .env
-    fi
+
+    cat << EOF > ".env"
+        SERVER_NAME=evolution
+        SERVER_TYPE=http
+        SERVER_PORT=8080
+        SERVER_URL=http://localhost:8080
+        EVENT_EMITTER_MAX_LISTENERS=50
+        DEL_INSTANCE=false
+        AUTHENTICATION_API_KEY= $API_KEY
+        DATABASE_PROVIDER=postgresql
+        DATABASE_CONNECTION_URI=postgresql://postgres:$POSTGRESQL_PASS@localhost:5432/evolution?schema=public
+
+        DATABASE_SAVE_DATA_INSTANCE=false
+        DATABASE_SAVE_DATA_NEW_MESSAGE=true
+        DATABASE_SAVE_MESSAGE_UPDATE=false
+        DATABASE_SAVE_DATA_CONTACTS=false
+        DATABASE_SAVE_DATA_CHATS=true
+        DATABASE_SAVE_DATA_LABELS=false
+        DATABASE_SAVE_DATA_HISTORIC=false
+        DATABASE_SAVE_IS_ON_WHATSAPP=false
+        DATABASE_SAVE_IS_ON_WHATSAPP_DAYS=false
+        DATABASE_DELETE_MESSAGE=true
+
+        WEBHOOK_GLOBAL_ENABLED=true
+        WEBHOOK_GLOBAL_URL='http://127.0.0.1:8080/webhook'
+        WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false
+        WEBHOOK_EVENTS_APPLICATION_STARTUP=false
+        WEBHOOK_EVENTS_QRCODE_UPDATED=false
+        WEBHOOK_EVENTS_MESSAGES_SET=false
+        WEBHOOK_EVENTS_MESSAGES_UPSERT=true
+        WEBHOOK_EVENTS_MESSAGES_EDITED=false
+        WEBHOOK_EVENTS_MESSAGES_UPDATE=false
+        WEBHOOK_EVENTS_MESSAGES_DELETE=false
+        WEBHOOK_EVENTS_SEND_MESSAGE=true
+        WEBHOOK_EVENTS_SEND_MESSAGE_UPDATE=false
+        WEBHOOK_EVENTS_CONTACTS_SET=false
+        WEBHOOK_EVENTS_CONTACTS_UPSERT=false
+        WEBHOOK_EVENTS_CONTACTS_UPDATE=false
+        WEBHOOK_EVENTS_PRESENCE_UPDATE=false
+        WEBHOOK_EVENTS_CHATS_SET=false
+        WEBHOOK_EVENTS_CHATS_UPSERT=false
+        WEBHOOK_EVENTS_CHATS_UPDATE=false
+        WEBHOOK_EVENTS_CHATS_DELETE=false
+        WEBHOOK_EVENTS_GROUPS_UPSERT=false
+        WEBHOOK_EVENTS_GROUPS_UPDATE=false
+        WEBHOOK_EVENTS_GROUP_PARTICIPANTS_UPDATE=false
+        WEBHOOK_EVENTS_CONNECTION_UPDATE=false
+        WEBHOOK_EVENTS_REMOVE_INSTANCE=false
+        WEBHOOK_EVENTS_LOGOUT_INSTANCE=false
+        WEBHOOK_EVENTS_LABELS_EDIT=false
+        WEBHOOK_EVENTS_LABELS_ASSOCIATION=false
+        WEBHOOK_EVENTS_CALL=false
+        WEBHOOK_EVENTS_ERRORS=false
+
+        CONFIG_SESSION_PHONE_CLIENT=PrintingKiosk
+        CONFIG_SESSION_PHONE_NAME=Chrome
+
+        QRCODE_LIMIT=30
+        QRCODE_COLOR='#175197'
+
+        CACHE_REDIS_ENABLED=true
+        CACHE_REDIS_URI=redis://localhost:6379
+        CACHE_REDIS_TTL=604800
+        CACHE_REDIS_PREFIX_KEY=evolution
+        CACHE_REDIS_SAVE_INSTANCES=false
+        CACHE_LOCAL_ENABLED=false
+
+        AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
+        LANGUAGE=en
+
+        EOF
 
     chmod +x local_install.sh || true
     ./local_install.sh || true
@@ -113,7 +158,7 @@ else
     done
     echo "API pronta! Apro il browser per la configurazione..."
     if command -v xdg-open >/dev/null 2>&1; then
-        xdg-open "http://localhost:8080/manager" || true
+        firefox --new-tab "http://localhost:8080/manager"
     fi
 
     if ! command -v libreoffice &> /dev/null; then

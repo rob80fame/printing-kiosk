@@ -558,7 +558,7 @@ class PrintingKiosk:
                 print(f"--- [CLEANUP] Cartella '{folder}' non trovata, saltata ---")
 
         try:
-            with open('config.json', 'w', encoding='utf-8') as f:
+            with open('tmp.json', 'w', encoding='utf-8') as f:
                 json.dump({}, f, indent=4)
             print("File tmp.json pulito con successo.")
         except Exception as e:
