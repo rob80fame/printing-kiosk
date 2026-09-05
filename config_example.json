@@ -13,5 +13,7 @@
                 "color": {"A4": 0.50, "A3": 1.30, "duplex_price": {"A4": 0.75, "A3": 1.95}},
                 "card": {"A4_bw": 0.50, "A3_bw": 0.80, "A4_color": 1.00, "A3_color": 2.00},
                 "lamination": {"A4": 1.00, "A3": 1.60}
-                }
+                },
+    "EMAIL_USER" : "your email to recieve text",
+    "EMAIL_PASS" : "get your app password from your provider"
 }

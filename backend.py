@@ -12,6 +12,15 @@ import json
 import random
 import subprocess
 import platform
+import email
+import imaplib
+import smtplib
+from email.message import EmailMessage
+from email.utils import parseaddr
+import threading
+import time
+from pathlib import Path
+import xml.etree.ElementTree as ET
 
 
 app = Flask(__name__)
@@ -34,6 +43,58 @@ DB_CONFIG = {
     "host": "localhost",
     "port": "5432"
 }
+
+def get_servers_from_email(email_address):
+    """Ricava i server IMAP e SMTP interrogando il database di autoconfigurazione di Thunderbird."""
+    domain = email_address.split("@")[-1].lower()
+    
+    # Mappa rapida per i provider più comuni (evita la richiesta HTTP se non necessaria)
+    known_providers = {
+        "gmail.com": {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com", "port": 587},
+        "outlook.com": {"imap": "outlook.office365.com", "smtp": "outlook.office365.com", "port": 587},
+        "hotmail.com": {"imap": "outlook.office365.com", "smtp": "outlook.office365.com", "port": 587},
+        "yahoo.com": {"imap": "imap.mail.yahoo.com", "smtp": "imap.mail.yahoo.com", "port": 587},
+        "icloud.com": {"imap": "imap.mail.me.com", "smtp": "imap.mail.me.com", "port": 587},
+        "aruba.it": {"imap": "imap.aruba.it", "smtp": "smtp.aruba.it", "port": 587},
+        "libero.it": {"imap": "imap.libero.it", "smtp": "smtp.libero.it", "port": 587}
+    }
+    
+    if domain in known_providers:
+        return known_providers[domain]
+
+    # Interrogazione del database pubblico Mozilla Thunderbird Autoconfig
+    url = f"https://autoconfig.thunderbird.net/v1.1/{domain}"
+    try:
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            root = ET.fromstring(response.text)
+            
+            imap_node = root.find(".//incomingServer[@type='imap']/hostname")
+            smtp_node = root.find(".//outgoingServer[@type='smtp']/hostname")
+            
+            imap_server = imap_node.text if imap_node is not None else f"imap.{domain}"
+            smtp_server = smtp_node.text if smtp_node is not None else f"smtp.{domain}"
+            
+            return {"imap": imap_server, "smtp": smtp_server, "port": 587}
+    except Exception:
+        pass
+        
+    # Fallback standard basato sul nome del dominio se Thunderbird fallisce
+    return {
+        "imap": f"imap.{domain}",
+        "smtp": f"smtp.{domain}",
+        "port": 587
+    }
+
+EMAIL_USER = file['EMAIL_USER']
+EMAIL_PASS = file['EMAIL_PASS']
+if EMAIL_USER:
+    servers = get_servers_from_email(EMAIL_USER)
+    IMAP_SERVER = servers["imap"]
+    SMTP_SERVER = servers["smtp"]
+    SMTP_PORT = 587
+
+SUPPORTED_EMAIL_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
 
 if not os.path.exists(Doc_path): 
     os.makedirs(Doc_path)
@@ -140,7 +201,7 @@ def process_document(data):
                 try:
                     convert(file_path, pdf_path)
                     print(f"--- [DOC] Conversione riuscita: {pdf_path} ---")
-                    final_path = pdf_path # Aggiorniamo il path al PDF
+                    final_path = pdf_path 
                 except Exception as conv_err:
                     print(f"--- [DOC] Errore conversione PDF: {conv_err} ---")
             
@@ -154,7 +215,6 @@ def process_document(data):
         print(f"--- [DOC] ERRORE CRITICO: {e} ---")
 
 def convert(file_path, output_dir):
-    ##if Microsoft Word is installed it uses it, else it uses libreoffice
     try:
         if platform.system() == "Windows":
             import win32com.client
@@ -183,13 +243,110 @@ def process_text(data):
     print(f"--- [TESTO] Ricevuto: {msg_content} ---")
 
 def invia_risposta(destinatario, testo):
-    if file['mode'] == "send":
+    if file.get('mode', 'send') == "send":
         url = f"{API_URL}/message/sendText/{INSTANCE}"
         headers = {"apikey": API_KEY, "Content-Type": "application/json"}
         requests.post(url, json={"number": destinatario, "text": testo}, headers=headers)
         print(f"--- [TESTO] Risposta inviata ---")
     else:
         print (f'Volevo mandare a {destinatario} il messaggio {testo} ma mi hai zittito')
+
+def send_email_reply(recipient_email, code):
+    """Invia risposta via email al mittente con il codice di stampa."""
+    if not recipient_email or not EMAIL_USER:
+        return
+    try:
+        msg = EmailMessage()
+        msg.set_content(f"File ricevuto! Il tuo codice per la stampa è: {code}")
+        msg['Subject'] = "Conferma ricezione e codice stampa - Kiosk"
+        msg['From'] = EMAIL_USER
+        msg['To'] = recipient_email
+
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASS)
+            server.send_message(msg)
+        print(f"[EMAIL] Risposta inviata con successo a {recipient_email} (Codice: {code})")
+    except Exception as e:
+        print(f"[EMAIL] Errore invio risposta SMTP: {e}")
+
+def process_incoming_emails():
+    if not EMAIL_USER or not EMAIL_PASS:
+        return
+    try:
+        mail = imaplib.IMAP4_SSL(IMAP_SERVER)
+        mail.login(EMAIL_USER, EMAIL_PASS)
+        
+        status, _ = mail.select("INBOX")
+        if status != "OK":
+            mail.logout()
+            return
+
+        status, messages = mail.search(None, "UNSEEN")
+        if status != "OK":
+            mail.logout()
+            return
+
+        msg_list = messages[0].split()
+        if not msg_list:
+            mail.logout()
+            return
+
+        for num in msg_list:
+            status, data = mail.fetch(num, "(RFC822)")
+            if status != "OK":
+                continue
+
+            for response_part in data:
+                if isinstance(response_part, tuple):
+                    msg = email.message_from_bytes(response_part[1])
+                    
+                    raw_from = msg.get("From", "")
+                    _, sender_email = parseaddr(raw_from)
+
+                    file_saved = False
+                    saved_file_path = None
+
+                    for part in msg.walk():
+                        if part.get_content_maintype() == "multipart":
+                            continue
+                        if part.get("Content-Disposition") is None:
+                            continue
+
+                        filename = part.get_filename()
+                        if filename and filename.lower().endswith(SUPPORTED_EMAIL_EXTENSIONS):
+                            # Se è immagine va in IMAGES, se è PDF va in DOCUMENTS
+                            if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                                target_dir = Img_path
+                            else:
+                                target_dir = Doc_path
+
+                            Path(target_dir).mkdir(parents=True, exist_ok=True)
+                            filepath = os.path.join(target_dir, filename)
+
+                            payload = part.get_payload(decode=True)
+                            if isinstance(payload, bytes):
+                                with open(filepath, "wb") as f:
+                                    f.write(payload)
+                                print(f"[EMAIL] File allegato salvato: {filename}")
+                                file_saved = True
+                                saved_file_path = filepath
+
+                    if file_saved and sender_email and saved_file_path:
+                        code = register_or_append_file(sender_email, saved_file_path)
+                        send_email_reply(sender_email, code)
+
+            mail.store(num, "+FLAGS", "\\Seen")
+
+        mail.logout()
+    except Exception as e:
+        print(f"[EMAIL] Errore nel ciclo IMAP: {e}")
+
+def email_monitor_loop(interval_seconds=30):
+    print(f"Servizio ricezione email IMAP avviato (controllo ogni {interval_seconds}s)...")
+    while True:
+        process_incoming_emails()
+        time.sleep(interval_seconds)
 
 def decrypt_whatsapp_media(enc_data, media_key_input, media_type):
 
@@ -277,4 +434,12 @@ def register_or_append_file(sender, file_path):
     return code
 
 if __name__ == '__main__':
+    init_db()
+    
+    # Avvia il monitoraggio email in background
+    monitor_thread = threading.Thread(
+        target=email_monitor_loop, args=(30,), daemon=True
+    )
+    monitor_thread.start()
+
     app.run(port=8080, debug=False)
