@@ -101,13 +101,29 @@ class PrintingKiosk:
                 self.render_file_grid(results, container)
 
     def render_login(self, container):
+        ui.add_head_html('''
+        <style>
+            /* Rimuove le frecce su Chrome, Safari, Edge, Opera */
+            input::-webkit-outer-spin-button,
+            input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
+            /* Rimuove le frecce su Firefox */
+            input[type=number] {
+                -moz-appearance: textfield;
+            }
+        </style>
+        ''')
         container.clear()
         with container:
             ui.label("Stampa i tuoi documenti").classes('mt-70 text-4xl font-bold mb-2')
             ui.label("Inserisci il codice mandato su Whatsapp").classes('text-xl mb-8')
-            code_input = ui.input(label="Codice").classes('w-64 text-2xl')
+            code_input = ui.input(label="Codice").classes('w-64 text-2xl').props('type=number inputmode=numeric').on('blur', lambda: code_input.run_method('focus'))
             code_input.on('keydown.enter', lambda: self.search_by_code(code_input.value, container))
             ui.button("Cerca", on_click=lambda: self.search_by_code(code_input.value, container)).classes('mt-5 px-20')
+
+            ui.timer(0.1, lambda: code_input.run_method('focus'), once=True)
 
     def render_file_grid(self, file_list, container):
         container.clear()
@@ -155,40 +171,47 @@ class PrintingKiosk:
         if not os.path.exists(os.path.join(os.getcwd(), 'DOCUMENTS')):
             return 0.0
             
-        # Determina numero pagine totali
-        # (Assumiamo di aprire il file temporaneo o originale per contare)
         try:
-            with fitz.open(self.current_file_path) as d: # Assicurati di salvare il percorso corrente
+            with fitz.open(self.current_file_path) as d:
                 total_pages = len(d)
         except:
             return 0.0
 
         selected = self.parse_page_selection(self.config['pages'], total_pages)
         pages_to_print = len(selected)
-        copies = int(self.config['copies'])
+        copies = int(self.config.get('copies') or 1)
         size = self.config['format']
         is_color = (self.config['mode'] == "Colore")
         is_duplex = (self.config['duplex'] == "Fronte-Retro")
         layout = self.config['layout']
 
-        # Logica pagine per foglio
-        pages_per_sheet = 2 if layout == "Due per foglio" else 4 if layout == "Quattro per foglio" else 1
-        if is_duplex:
-            pages_per_sheet *= 2
-        
-        sheets_per_copy = (pages_to_print + pages_per_sheet - 1) // pages_per_sheet
 
-        # Recupero prezzi
+        # 2. Recupero prezzi
         pricing = PRICES["color"] if is_color else PRICES["bw"]
         page_price = pricing.get(size, pricing["A4"])
         duplex_price = pricing.get("duplex_price", {}).get(size, page_price)
 
-        if is_duplex:
-            duplex_sheets = pages_to_print // pages_per_sheet
-            leftover_pages = pages_to_print % pages_per_sheet
-            base_cost = (duplex_sheets * duplex_price + leftover_pages * page_price) * copies
-        else:
+        # 3. Calcolo fogli in base al layout
+        if layout == "Metà per foglio":
+            sheets_per_copy = pages_to_print * 2
             base_cost = page_price * sheets_per_copy * copies
+        elif layout == "Un quarto per foglio":
+            sheets_per_copy = pages_to_print * 4
+            base_cost = page_price * sheets_per_copy * copies
+        else:
+            # Layout standard (Uno, Due, Quattro per foglio normali)
+            pages_per_sheet = 2 if layout == "Due per foglio" else 4 if layout == "Quattro per foglio" else 1
+            if is_duplex:
+                pages_per_sheet *= 2
+            
+            sheets_per_copy = (pages_to_print + pages_per_sheet - 1) // pages_per_sheet
+
+            if is_duplex:
+                duplex_sheets = pages_to_print // pages_per_sheet
+                leftover_pages = pages_to_print % pages_per_sheet
+                base_cost = (duplex_sheets * duplex_price + leftover_pages * page_price) * copies
+            else:
+                base_cost = page_price * sheets_per_copy * copies
 
         return round(base_cost + 1e-9, 2)
 
@@ -392,9 +415,9 @@ class PrintingKiosk:
 
                         ui.number("Copie", value=1, format='%.0f', on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'copies')
                         ui.select(["Bianco e Nero", "Colore"], label="Modalità", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'mode')
-                        ui.select(["A4", "A3", "A5"], label="Formato", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'format')
-                        ui.select(["Solo Fronte", "Fronte-Retro"], label="Fronte-Retro", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'duplex')
-                        ui.select(["Uno per foglio", "Due per foglio", "Quattro per foglio"], label="Layout", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'layout')
+                        self.format_select = ui.select(["A4", "A3", "A5", "A2(2xA3)", "A1(4xA3)"], label="Formato", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'format')
+                        self.duplex_select = ui.select(["Solo Fronte", "Fronte-Retro"], label="Fronte-Retro", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'duplex')
+                        self.layout_select = ui.select(["Uno per foglio", "Due per foglio", "Quattro per foglio", "Metà per foglio", "Un quarto per foglio"], label="Layout", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'layout')
                         ui.input("Pagine (es: 1-3, 5)", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'pages')
                         
                         ui.separator().classes('my-4')
@@ -421,9 +444,24 @@ class PrintingKiosk:
     async def update_ui_elements(self, *args):
         if self.is_updating:
             return 
-        
-        self.is_updating = True
         try:
+            self.is_updating = True
+            
+            formatt = str(self.config.get('format', ''))
+
+            if formatt == "A2(2xA3)":
+                self.layout_select.value = "Metà per foglio"
+                self.format_select.value = "A3"
+            elif formatt == "A1(4xA3)":
+                self.layout_select.value = "Un quarto per foglio"
+                self.format_select.value = "A3"
+
+            layout = str(self.config.get('layout', '')).lower()
+
+            if layout in ["metà per foglio", "un quarto per foglio"]:
+                #self.config['duplex'] = "Solo Fronte"
+                self.duplex_select.value = "Solo Fronte"
+
             # 1. Aggiorna il costo
             cost = self.compute_cost()
             if self.cost_label:
@@ -451,6 +489,8 @@ class PrintingKiosk:
                     
                     for img_b64 in images:
                         ui.image(f"data:image/png;base64,{img_b64}").classes('w-full h-auto object-contain border shadow-md mb-4')
+        except Exception as e:
+            print(f"Errore durante l'aggiornamento UI: {e}")
         finally:
             self.is_updating = False
 
@@ -637,6 +677,19 @@ class PrintingKiosk:
                 img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
             return img
 
+
+        # Funzione helper per ottenere il ritaglio (tile) di una porzione di pagina
+        def get_tile_img(page_idx, clip_rect):
+            page = doc[page_idx]
+            matrix = fitz.Matrix(4, 4)
+            if is_bw:
+                pix = page.get_pixmap(matrix=matrix, clip=clip_rect, colorspace=fitz.csGRAY)
+                img = Image.frombytes("L", (pix.width, pix.height), pix.samples).convert("RGB")
+            else:
+                pix = page.get_pixmap(matrix=matrix, clip=clip_rect)
+                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            return img
+
         # Logica Layout
         if layout == "Uno per foglio":
             for idx in page_indices:
@@ -682,6 +735,53 @@ class PrintingKiosk:
                 buf = BytesIO()
                 combined.save(buf, format="PNG")
                 images_base64.append(base64.b64encode(buf.getvalue()).decode())
+
+        elif layout == "Metà per foglio":
+            # Divide ogni pagina selezionata in 2 parti (es. formato A2 diviso in 2)
+            for idx in page_indices:
+                page = doc[idx]
+                r = page.rect
+                w, h = r.width, r.height
+                
+                # Se è orizzontale taglia in 2 colonne, se verticale in 2 righe
+                cols, rows = (2, 1) if w > h else (1, 2)
+                tile_w = w / cols
+                tile_h = h / rows
+                
+                for row in range(rows):
+                    for col in range(cols):
+                        x0 = r.x0 + col * tile_w
+                        y0 = r.y0 + row * tile_h
+                        clip_rect = fitz.Rect(x0, y0, x0 + tile_w, y0 + tile_h)
+                        
+                        img = get_tile_img(idx, clip_rect)
+                        img.thumbnail((400, 600))
+                        buf = BytesIO()
+                        img.save(buf, format="PNG")
+                        images_base64.append(base64.b64encode(buf.getvalue()).decode())
+
+        elif layout == "Un quarto per foglio":
+            # Divide ogni pagina selezionata in 4 parti (es. formato A1 diviso in 4)
+            for idx in page_indices:
+                page = doc[idx]
+                r = page.rect
+                w, h = r.width, r.height
+                
+                cols, rows = 2, 2
+                tile_w = w / cols
+                tile_h = h / rows
+                
+                for row in range(rows):
+                    for col in range(cols):
+                        x0 = r.x0 + col * tile_w
+                        y0 = r.y0 + row * tile_h
+                        clip_rect = fitz.Rect(x0, y0, x0 + tile_w, y0 + tile_h)
+                        
+                        img = get_tile_img(idx, clip_rect)
+                        img.thumbnail((400, 400))
+                        buf = BytesIO()
+                        img.save(buf, format="PNG")
+                        images_base64.append(base64.b64encode(buf.getvalue()).decode())
 
         doc.close()
         return images_base64
