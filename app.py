@@ -20,6 +20,7 @@ with open('config.json', 'r') as f:
 # Configurazione
 db_pass = file['pass']
 PRINTER_NAME = file['Printer']
+usb_code = file['usb_code']
 
 DB_CONFIG = {
     "dbname": "images",
@@ -118,7 +119,8 @@ class PrintingKiosk:
         container.clear()
         with container:
             ui.label("Stampa i tuoi documenti").classes('mt-70 text-4xl font-bold mb-2')
-            ui.label("Inserisci il codice mandato su Whatsapp").classes('text-xl mb-8')
+            ui.label("Inserisci il codice mandato su Whatsapp o via email").classes('text-xl')
+            ui.label(f"Se hai inserito la chiavetta inserisci il codice é {usb_code}").classes('text-xl mb-8')
             code_input = ui.input(label="Codice").classes('w-64 text-2xl').props('type=number inputmode=numeric').on('blur', lambda: code_input.run_method('focus'))
             code_input.on('keydown.enter', lambda: self.search_by_code(code_input.value, container))
             ui.button("Cerca", on_click=lambda: self.search_by_code(code_input.value, container)).classes('mt-5 px-20')
@@ -575,6 +577,13 @@ class PrintingKiosk:
             conn = psycopg2.connect(**DB_CONFIG)
             cur = conn.cursor()
             cur.execute("TRUNCATE TABLE orders RESTART IDENTITY;")
+            initial_files = json.dumps([]) # Lista vuota in attesa dei file della chiavetta
+    
+            cur.execute("""
+                INSERT INTO orders (sender, code, file_paths) 
+                VALUES (%s, %s, %s)
+            """, (usb_code, usb_code, initial_files))
+
             conn.commit()
             cur.close()
             conn.close()

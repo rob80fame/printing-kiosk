@@ -15,5 +15,6 @@
                 "lamination": {"A4": 1.00, "A3": 1.60}
                 },
     "EMAIL_USER" : "your email to recieve text",
-    "EMAIL_PASS" : "get your app password from your provider"
+    "EMAIL_PASS" : "get your app password from your provider",
+    "usb_code" : "code to insert if you used your usb key to print files"
 }

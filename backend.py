@@ -21,6 +21,8 @@ import threading
 import time
 from pathlib import Path
 import xml.etree.ElementTree as ET
+import shutil
+import ctypes
 
 
 app = Flask(__name__)
@@ -31,10 +33,12 @@ with open('config.json', 'r') as f:
 Proj_path = os.getcwd()
 Doc_path = os.path.join(Proj_path, "DOCUMENTS")
 Img_path = os.path.join(Proj_path, "IMAGES")
+TMP_DIR = "tmp"
 API_URL = "http://localhost:8080"
 INSTANCE = file['name']
 API_KEY = file['apikey']
 db_pass = file['pass']
+usb_code = file['usb_code']
 
 DB_CONFIG = {
     "dbname": "images",
@@ -43,6 +47,8 @@ DB_CONFIG = {
     "host": "localhost",
     "port": "5432"
 }
+
+os.makedirs(TMP_DIR, exist_ok=True)
 
 def get_servers_from_email(email_address):
     """Ricava i server IMAP e SMTP interrogando il database di autoconfigurazione di Thunderbird."""
@@ -94,7 +100,7 @@ if EMAIL_USER:
     SMTP_SERVER = servers["smtp"]
     SMTP_PORT = 587
 
-SUPPORTED_EMAIL_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".webp")
+SUPPORTED_EMAIL_EXTENSIONS = (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".doc", ".docx")
 
 if not os.path.exists(Doc_path): 
     os.makedirs(Doc_path)
@@ -314,16 +320,45 @@ def process_incoming_emails():
                             continue
 
                         filename = part.get_filename()
+                        filename = part.get_filename()
                         if filename and filename.lower().endswith(SUPPORTED_EMAIL_EXTENSIONS):
-                            # Se è immagine va in IMAGES, se è PDF va in DOCUMENTS
-                            if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                            ext = filename.lower()
+                            
+                            # Struttura condizionale corretta per evitare sovrascrizioni di target_dir
+                            if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
                                 target_dir = Img_path
+                                is_doc = False
+                            elif ext.endswith(('.doc', '.docx')):
+                                target_dir = Doc_path
+                                is_doc = True
                             else:
                                 target_dir = Doc_path
+                                is_doc = False
 
                             Path(target_dir).mkdir(parents=True, exist_ok=True)
                             filepath = os.path.join(target_dir, filename)
 
+                            # 1. Salva prima l'allegato grezzo su disco
+                            payload = part.get_payload(decode=True)
+                            if isinstance(payload, bytes):
+                                with open(filepath, "wb") as f:
+                                    f.write(payload)
+                            elif isinstance(payload, str):
+                                with open(filepath, "w", encoding="utf-8") as f:
+                                    f.write(payload)
+
+                            # 2. Se è un file Word, converte il file appena salvato in PDF
+                            if is_doc:
+                                base_name = os.path.splitext(filename)[0]
+                                pdf_path = os.path.join(Doc_path, f"{base_name}.pdf")
+                                
+                                print(f"--- [DOC] Conversione in PDF in corso... ---")
+                                try:
+                                    convert(filepath, pdf_path)
+                                    print(f"--- [DOC] Conversione riuscita: {pdf_path} ---")
+                                    final_path = pdf_path 
+                                except Exception as conv_err:
+                                    print(f"--- [DOC] Errore conversione PDF: {conv_err} ---")
                             payload = part.get_payload(decode=True)
                             if isinstance(payload, bytes):
                                 with open(filepath, "wb") as f:
@@ -347,6 +382,111 @@ def email_monitor_loop(interval_seconds=30):
     while True:
         process_incoming_emails()
         time.sleep(interval_seconds)
+import json
+import psycopg2
+
+def clear_usb_files_from_db(usb_code):
+    """Sovrascrive la colonna file_paths con un array vuoto solo per la specifica entry associata al codice USB."""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+        
+        empty_files = json.dumps([])
+        # Aggiorna solo la riga corrispondente allo specifico usb_code
+        cur.execute("UPDATE orders SET file_paths = %s WHERE code = %s;", (empty_files, usb_code))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"--- [USB] Chiavetta rimossa: file svuotati nel database per il codice {usb_code} ---")
+    except Exception as e:
+        print(f"--- [USB] Errore durante l'aggiornamento del DB alla rimozione: {e} ---")
+
+def usb_monitor_loop():
+    print("--- [USB] Monitoraggio chiavette avviato ---")
+    seen_drives = set()
+    
+    # Rileva le unità rimovibili già presenti all'avvio per ignorarle
+    try:
+        bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+        for letter in range(65, 91):
+            if bitmask & (1 << (letter - 65)):
+                drive = chr(letter) + ":\\"
+                if ctypes.windll.kernel32.GetDriveTypeW(drive) == 2:
+                    seen_drives.add(drive)
+    except Exception as e:
+        print(f"Errore scansione iniziale USB: {e}")
+
+    while True:
+        try:
+            current_drives = set()
+            bitmask = ctypes.windll.kernel32.GetLogicalDrives()
+            for letter in range(65, 91):
+                if bitmask & (1 << (letter - 65)):
+                    drive = chr(letter) + ":\\"
+                    if ctypes.windll.kernel32.GetDriveTypeW(drive) == 2:
+                        current_drives.add(drive)
+            
+            # 1. Rileva inserimento di nuove chiavette
+            new_drives = current_drives - seen_drives
+            for drive in new_drives:
+                print(f"\n--- [USB] Nuova chiavetta rilevata: {drive} ---")
+                
+                files_found = False
+                Path(TMP_DIR).mkdir(parents=True, exist_ok=True)
+                
+                for root, dirs, files in os.walk(drive):
+                    for file in files:
+                        if file.lower().endswith(SUPPORTED_EMAIL_EXTENSIONS):
+                            src_path = os.path.join(root, file)
+                            dst_path = os.path.join(TMP_DIR, file)
+                            
+                            try:
+                                shutil.copy(src_path, dst_path)
+                                final_path = dst_path
+                                
+                                if file.lower().endswith(('.doc', '.docx')):
+                                    base_name = os.path.splitext(file)[0]
+                                    pdf_path = os.path.join(TMP_DIR, f"{base_name}.pdf")
+                                    convert(dst_path, pdf_path)
+                                    final_path = pdf_path
+                                
+                                register_or_append_file(usb_code, final_path)
+                                files_found = True
+                            except Exception as file_err:
+                                print(f"--- [USB] Errore elaborazione file {file}: {file_err} ---")
+
+            # 2. Rileva rimozione di chiavette esistenti
+            removed_drives = seen_drives - current_drives
+            for drive in removed_drives:
+                print(f"\n--- [USB] Chiavetta rimossa: {drive} ---")
+                clear_usb_files_from_db(usb_code)
+
+                with open('tmp.json', 'w', encoding='utf-8') as f:
+                    json.dump({}, f, indent=4)
+                print("File tmp.json pulito con successo.")
+
+                folder = TMP_DIR
+                if os.path.exists(folder):
+                    files = os.listdir(folder)
+                    for filename in files:
+                        file_path = os.path.join(folder, filename)
+                        try:
+                            if os.path.isfile(file_path):
+                                os.remove(file_path)
+                                print(f"--- [CLEANUP] Eliminato: {filename} ---")
+                        except Exception as e:
+                            print(f"--- [CLEANUP] Errore eliminazione {filename}: {e} ---")
+                    print(f"--- [CLEANUP] Cartella '{folder}' pulita ---")
+                else:
+                    print(f"--- [CLEANUP] Cartella '{folder}' non trovata, saltata ---")
+
+            seen_drives = current_drives
+            
+        except Exception as e:
+            print(f"--- [USB] Errore nel ciclo di monitoraggio: {e} ---")
+        
+        time.sleep(2)
 
 def decrypt_whatsapp_media(enc_data, media_key_input, media_type):
 
@@ -435,7 +575,11 @@ def register_or_append_file(sender, file_path):
 
 if __name__ == '__main__':
     init_db()
-    
+
+    # Avvia il monitoraggio USB in background
+    usb_thread = threading.Thread(target=usb_monitor_loop, daemon=True)
+    usb_thread.start()
+
     # Avvia il monitoraggio email in background
     monitor_thread = threading.Thread(
         target=email_monitor_loop, args=(30,), daemon=True
@@ -443,3 +587,9 @@ if __name__ == '__main__':
     monitor_thread.start()
 
     app.run(port=8080, debug=False)
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n--- [BACKGROUND] Arresto dei servizi in corso... ---")
