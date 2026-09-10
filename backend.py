@@ -23,6 +23,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 import shutil
 import ctypes
+from nicegui import ui
 
 
 app = Flask(__name__)
@@ -573,6 +574,47 @@ def register_or_append_file(sender, file_path):
     
     return code
 
+def admin_app():
+    @ui.page('/')
+    def page2():
+        ui.label("Pannello Admin - Prezzi in Tempo Reale").classes('text-2xl font-bold mb-4')
+        
+        container = ui.column().classes('w-full gap-2')
+        
+        def update_data():
+            container.clear()
+            file_path = 'tmp.json'
+            
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    
+                    with container:
+                        if not data:
+                            ui.label("Il file tmp.json è vuoto.").classes('text-gray-500')
+                        else:
+                            with ui.table(
+                                columns=[
+                                    {'name': 'key', 'label': 'Codice', 'field': 'key', 'align': 'left'},
+                                    {'name': 'value', 'label': 'Valore / Prezzo', 'field': 'value', 'align': 'left'},
+                                ],
+                                rows=[{'key': k, 'value': v} for k, v in data.items()]
+                            ).classes('w-full'):
+                                pass
+                except Exception as e:
+                    with container:
+                        ui.label(f"Errore di lettura JSON: {e}").classes('text-red-500 text-sm')
+            else:
+                with container:
+                    ui.label("In attesa del file tmp.json...").classes('text-gray-400 italic')
+
+        # Aggiornamento iniziale e polling tramite timer ogni 2 secondi
+        update_data()
+        ui.timer(2.0, update_data)
+
+    ui.run(port=7776, host='0.0.0.0', reload=False, show=False)
+
 if __name__ == '__main__':
     init_db()
 
@@ -586,10 +628,17 @@ if __name__ == '__main__':
     )
     monitor_thread.start()
 
+    t = threading.Thread(target=admin_app, daemon=True)
+    t.start()
+
     app.run(port=8080, debug=False)
+
+    
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         print("\n--- [BACKGROUND] Arresto dei servizi in corso... ---")
+
+    

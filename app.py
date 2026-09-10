@@ -5,7 +5,7 @@ import asyncio
 import subprocess
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from nicegui import ui
+from nicegui import ui, run
 import json
 import uuid
 import fitz
@@ -33,6 +33,88 @@ DB_CONFIG = {
 PRICES = file['prices']
 FOLDERS_TO_CLEAN = ["IMAGES", "DOCUMENTS", "tmp"]
 
+isdev = True
+
+if isdev == False:
+    ui.add_head_html('''
+    <style>
+        #connection-lost-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #111827;
+            color: white;
+            z-index: 999999;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            font-family: system-ui, -apple-system, sans-serif;
+            text-align: center;
+            padding: 2rem;
+        }
+        #connection-lost-overlay h1 {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #ef4444;
+            margin-bottom: 1rem;
+        }
+        #connection-lost-overlay p {
+            font-size: 1.5rem;
+            color: #d1d5db;
+        }
+    </style>
+
+    <div id="connection-lost-overlay">
+        <h1>Connessione persa</h1>
+        <p>Contatta un commesso</p>
+    </div>
+
+    <script>
+        window.addEventListener('load', () => {
+            const overlay = document.getElementById('connection-lost-overlay');
+            
+            const showOverlay = () => {
+                if (overlay) overlay.style.display = 'flex';
+            };
+
+            const hideOverlay = () => {
+                if (overlay) overlay.style.display = 'none';
+            };
+
+            // 1. Rilevamento immediato dello stato di rete del browser
+            window.addEventListener('offline', showOverlay);
+            window.addEventListener('online', () => {
+                // Verifica subito se il server risponde prima di togliere l'overlay
+                checkServer();
+            });
+
+            if (!navigator.onLine) {
+                showOverlay();
+            }
+
+            // 2. Controllo periodico (Heartbeat ogni 3 secondi) per verificare se il server Python risponde
+            const checkServer = async () => {
+                try {
+                    const response = await fetch(window.location.href, { method: 'HEAD', cache: 'no-store' });
+                    if (response.ok) {
+                        hideOverlay();
+                    } else {
+                        showOverlay();
+                    }
+                } catch (error) {
+                    showOverlay();
+                }
+            };
+
+            setInterval(checkServer, 3000);
+        });
+    </script>
+    ''', shared=True)
+
+
 class PrintingKiosk:
     def __init__(self):
         self.current_code = ""
@@ -41,6 +123,7 @@ class PrintingKiosk:
         self.preview_area = None
         self.is_updating = False
         self.price_label = None
+        self.current_file_list = []
 
         self.config = {
             'copies': 1,
@@ -102,22 +185,23 @@ class PrintingKiosk:
                 self.render_file_grid(results, container)
 
     def render_login(self, container):
-        ui.add_head_html('''
-        <style>
-            /* Rimuove le frecce su Chrome, Safari, Edge, Opera */
-            input::-webkit-outer-spin-button,
-            input::-webkit-inner-spin-button {
-                -webkit-appearance: none;
-                margin: 0;
-            }
-            /* Rimuove le frecce su Firefox */
-            input[type=number] {
-                -moz-appearance: textfield;
-            }
-        </style>
-        ''')
+        
         container.clear()
         with container:
+            ui.add_head_html('''
+                    <style>
+                        /* Rimuove le frecce su Chrome, Safari, Edge, Opera */
+                        input::-webkit-outer-spin-button,
+                        input::-webkit-inner-spin-button {
+                            -webkit-appearance: none;
+                            margin: 0;
+                        }
+                        /* Rimuove le frecce su Firefox */
+                        input[type=number] {
+                            -moz-appearance: textfield;
+                        }
+                    </style>
+                    ''')
             ui.label("Stampa i tuoi documenti").classes('mt-70 text-4xl font-bold mb-2')
             ui.label("Inserisci il codice mandato su Whatsapp o via email").classes('text-xl')
             ui.label(f"Se hai inserito la chiavetta inserisci il codice é {usb_code}").classes('text-xl mb-8')
@@ -128,31 +212,36 @@ class PrintingKiosk:
             ui.timer(0.1, lambda: code_input.run_method('focus'), once=True)
 
     def render_file_grid(self, file_list, container):
+        
         container.clear()
-        # Nota: container viene passato qui per aggiungere elementi
-        ui.button("← Indietro", on_click=lambda: self.render_login(container)).classes('self-start')
-        ui.label("File trovati").classes('text-2xl font-bold my-5')
-        
-        with ui.grid(columns=4).classes('gap-4'):
-            for f in file_list:
-                preview_data = self.get_pdf_preview_data(f)
-                
-                # Creiamo la card
-                with ui.card().classes('w-64 h-64 border p-2 cursor-pointer bg-white transition-all') as card:
-                    # Al click, eseguiamo il toggle
-                    card.on('click', lambda f=f, c=card: self.toggle_selection(f, c))
+        with container:
+            # Nota: container viene passato qui per aggiungere elementi
+            ui.button("← Indietro", on_click=lambda: self.render_login(container)).classes('self-start')
+            ui.label("File trovati").classes('text-2xl font-bold my-5')
+            
+            with ui.grid(columns=4).classes('gap-4'):
+                for f in file_list:
+                    preview_data = self.get_pdf_preview_data(f)
                     
-                    if preview_data:
-                        ui.image(preview_data).classes('w-full h-full object-contain pointer-events-none')
-                    
-                    ui.label(os.path.basename(f)[:15]).classes('text-xs pointer-events-none')
+                    # Creiamo la card
+                    with ui.card().classes('w-64 h-64 border p-2 cursor-pointer bg-white transition-all') as card:
+                        # Al click, eseguiamo il toggle
+                        card.on('click', lambda f=f, c=card: self.toggle_selection(f, c))
+                        
+                        if preview_data:
+                            ui.image(preview_data).classes('w-full h-full object-contain pointer-events-none')
+                        
+                        ui.label(os.path.basename(f)[:15]).classes('text-xs pointer-events-none')
 
-        ui.button("Stampa", on_click=lambda: self.print_selected_files(container)).classes('mt-10 bg-green-600')
-        with ui.row().classes('w-full justify-end mt-10'):
-            self.price_label = ui.label(self.totalprice).classes('text-2xl font-bold text-green-700')
+            ui.button("Stampa", on_click=lambda: self.print_selected_files(container)).classes('mt-10 bg-green-600')
+            with ui.row().classes('w-full justify-end mt-10'):
+                self.price_label = ui.label(self.totalprice).classes('text-2xl font-bold text-green-700')
+
+            # Timer che chiama update_cost ogni 3 secondi
+            ui.timer(3.0, self.update_cost)
+
+        self.current_file_list = file_list
         
-        # Timer che chiama update_cost ogni 3 secondi
-        ui.timer(3.0, self.update_cost)
 
 
     def toggle_selection(self, file_path, card):
@@ -336,10 +425,7 @@ class PrintingKiosk:
         tmp_file = self.merge_docs(list(self.selected_files))
         self.render_print_config(container, tmp_file)
         
-        # Reset selezione dopo la stampa (opzionale)
         self.selected_files.clear()
-        # Se vuoi aggiornare la UI, ricarica la griglia
-        # ...
             
     def get_pdf_preview_data(self, file_path):
         try:
@@ -399,22 +485,32 @@ class PrintingKiosk:
         return []
         
     def render_print_config(self, container, file_path):
-        self.current_file_path = file_path
         container.clear()
-        
+        self.current_file_path = file_path
+
         control_classes = 'w-full text-xl'
 
         # Contenitore principale a schermo intero
         with container.classes('w-full h-screen overflow-hidden'):
+            with ui.dialog() as funct, ui.card().classes('p-6 min-w-[300px]'):
+                ui.label("Funzioni aggiuntive").classes('text-xl font-bold mb-4')
+                
+                # Qui inserisci i widget o le funzioni della sovrafinestra
+                ui.label("Funzioni da definire...")
+                
+                with ui.row().classes('w-full justify-end mt-4'):
+                    ui.button("Chiudi", on_click=funct.close).classes('bg-gray-500 text-white')
+
             # Split 50/50 per dividere lo schermo equamente
             with ui.splitter(value=50).classes('w-full h-full') as splitter:
                 
                 # --- LATO SINISTRO (Configurazione) ---
                 with splitter.before:
                     with ui.column().classes('w-full h-full p-8 gap-4 overflow-y-auto'):
-                        ui.button("← Indietro", on_click=lambda: self.render_login(container)).classes('self-start')
+                        with ui.row().classes('w-full items-center justify-between'):
+                            ui.button("← Indietro", on_click=lambda: self.render_file_grid(self.current_file_list, container)).props('outline')
+                            ui.button("+", on_click=funct.open).props('outline').classes('text-xl font-bold px-4 py-2')
                         ui.label("Configurazione Stampa").classes('text-3xl font-bold mb-4')
-
                         ui.number("Copie", value=1, format='%.0f', on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'copies')
                         ui.select(["Bianco e Nero", "Colore"], label="Modalità", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'mode')
                         self.format_select = ui.select(["A4", "A3", "A5", "A2(2xA3)", "A1(4xA3)"], label="Formato", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'format')
@@ -423,7 +519,7 @@ class PrintingKiosk:
                         ui.input("Pagine (es: 1-3, 5)", on_change=self.update_ui_elements).classes(control_classes).bind_value(self.config, 'pages')
                         
                         ui.separator().classes('my-4')
-                        ui.button("STAMPA", on_click=lambda: self.send_to_printer(file_path, container)).classes('w-full py-6 text-3xl font-bold bg-green-600')
+                        ui.button("STAMPA", on_click=lambda: self.send_to_printer(file_path, container)).classes('w-full py-6 text-xl font-bold bg-green-600')
                         
                         # Salvato in self per update_ui_elements
                         self.cost_label = ui.label("€ 0.00").classes('text-4xl font-bold text-green-700 mt-2')
@@ -440,8 +536,8 @@ class PrintingKiosk:
                             # Salvato in self per update_ui_elements e popolamento dinamico
                             self.preview_area = ui.column().classes('w-full items-center')
 
-        # Trigger iniziale
-        ui.timer(0.1, self.update_ui_elements, once=True)
+            # Trigger iniziale
+            ui.timer(0.1, self.update_ui_elements, once=True)
 
     async def update_ui_elements(self, *args):
         if self.is_updating:
@@ -528,12 +624,16 @@ class PrintingKiosk:
             # Campi configurazione
             # Struttura: key -> (label, password_field)
             field_definitions = {
-                "pass": ("Password (pass)", True),
-                "npmdir": ("Directory NPM (npmdir)", False),
-                "name": ("Nome (name)", False),
-                "phonenum": ("Numero Telefono (phonenum)", False),
-                "apikey": ("API Key (apikey)", True),
-                "mode": ("Mode (silence/send)", False)
+                "pass": ("DbPassword", True),
+                "name": ("IstanceName", False),
+                "phonenum": ("Phonenumber)", False),
+                "apikey": ("API Key", True),
+                "mode": ("Mode (silence/send)", False),
+                "EMAIL_USER" : ("Email",False),
+                "EMAIL_PASS" : ("Email App password", True),
+                "sudo": ("ConfigCode", False),
+                "shutp": ("ShutCode", False),
+                "usb_code" : ("UsbCode", False)
             }
             
             inputs = {}
@@ -613,18 +713,21 @@ class PrintingKiosk:
         except Exception as e:
             print(f"Errore durante la pulizia del file: {e}")
 
-    def send_to_printer(self, file_path, container):
+    async def send_to_printer(self, file_path, container):
+        # Convertiamo le copie in stringa per evitare problemi con i parametri del processo
+        copies = str(self.config['copies'])
+        
         if not os.path.exists(r"SumatraPDF.exe"):
-            copies = self.config['copies']
             color_opt = "color" if self.config['mode'] == "Colore" else "monochrome"
             duplex_opt = "two-sided-long-edge" if self.config['duplex'] == "Fronte-Retro" else "one-sided"
             media_opt = self.config['format']
-            cmd = ["lp", "-d", PRINTER_NAME, "-n", copies, "-o", f"color={color_opt}", "-o", f"sides={duplex_opt}", "-o", f"media={media_opt}", "-o", "fit-to-page", file_path ]
+            cmd = ["lp", "-d", PRINTER_NAME, "-n", copies, "-o", f"color={color_opt}", "-o", f"sides={duplex_opt}", "-o", f"media={media_opt}", "-o", "fit-to-page", file_path]
             try:
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
+                # Esecuzione asincrona per non bloccare la UI ed evitare il popup "Connection lost"
+                await run.io_bound(subprocess.run, cmd, check=True, capture_output=True, text=True)
                 registertmpprice(self.current_code, self.cost_label.text)
                 container.clear()
-                self.render_login(container)
+                self.render_file_grid(self.current_file_list, container)
             except subprocess.CalledProcessError as e:
                 print(f"Errore stampa (lp): {e.stderr}")
                 return False
@@ -632,20 +735,19 @@ class PrintingKiosk:
                 print(f"Errore generico: {e}")
                 return False
         else:
-            copies = self.config['copies']
             color_mode = "color" if self.config['mode'] == "Colore" else "monochrome"
             layout = "duplex" if self.config['duplex'] == "Fronte-Retro" else "simplex"
             print_settings = f"{copies}x,{color_mode},{self.config['format']},{layout},ignore-pdf-print-settings"
             cmd = ["SumatraPDF.exe", "-print-to", PRINTER_NAME, "-silent", "-print-settings", print_settings, file_path]
             try:
-                subprocess.run(cmd, check=True, capture_output=True, text=True)
+                await run.io_bound(subprocess.run, cmd, check=True, capture_output=True, text=True)
                 registertmpprice(self.current_code, self.cost_label.text)
                 container.clear()
-                self.render_login(container)
+                self.render_file_grid(self.current_file_list, container)
             except subprocess.CalledProcessError as e:
                 print(f"Errore stampa: {e}")
                 return False
-    
+        
     def parse_page_selection(self, pages_str, total_pages):
         """Converte una stringa come '1-3, 5' in una lista di indici [0, 1, 2, 4]."""
         if not pages_str or pages_str.lower() in {"tutte", "all"}:

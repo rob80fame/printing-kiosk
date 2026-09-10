@@ -3,9 +3,9 @@ __pycache__/
 DOCUMENTS/
 IMAGES/
 tmp/
+screenshots/
 config.json
 tmp.json
-SumatraPDF.exe
 SumatraPDF-settings.txt
 TODO
 test.py
