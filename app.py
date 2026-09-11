@@ -187,27 +187,56 @@ class PrintingKiosk:
     def render_login(self, container):
         
         container.clear()
+
+        with container.classes('w-full h-screen overflow-hidden'):
+                    with ui.dialog() as policy, ui.card().classes('p-6 min-w-[300px]'):
+                        ui.label("Informativa sulla Privacy e Trattamento dei Dati Personali").classes('text-xl font-bold mb-4')
+                        with open('policy.txt', 'r', encoding='utf-8') as f:
+                            plcy = f.read()
+
+                        # Qui inserisci i widget o le funzioni della sovrafinestra
+                        ui.label(f"{plcy}")
+                        
+                        with ui.row().classes('w-full justify-end mt-4'):
+                            ui.button("Chiudi", on_click=policy.close).classes('bg-gray-500 text-white')
         with container:
+            container.classes(remove='overflow-y-auto', add='overflow-hidden')
+            
             ui.add_head_html('''
-                    <style>
-                        /* Rimuove le frecce su Chrome, Safari, Edge, Opera */
-                        input::-webkit-outer-spin-button,
-                        input::-webkit-inner-spin-button {
-                            -webkit-appearance: none;
-                            margin: 0;
-                        }
-                        /* Rimuove le frecce su Firefox */
-                        input[type=number] {
-                            -moz-appearance: textfield;
-                        }
-                    </style>
-                    ''')
-            ui.label("Stampa i tuoi documenti").classes('mt-70 text-4xl font-bold mb-2')
-            ui.label("Inserisci il codice mandato su Whatsapp o via email").classes('text-xl')
-            ui.label(f"Se hai inserito la chiavetta inserisci il codice é {usb_code}").classes('text-xl mb-8')
-            code_input = ui.input(label="Codice").classes('w-64 text-2xl').props('type=number inputmode=numeric').on('blur', lambda: code_input.run_method('focus'))
-            code_input.on('keydown.enter', lambda: self.search_by_code(code_input.value, container))
-            ui.button("Cerca", on_click=lambda: self.search_by_code(code_input.value, container)).classes('mt-5 px-20')
+                <style>
+                    html, body {
+                        overflow: hidden !important;
+                        height: 100vh !important;
+                        margin: 0 !important;
+                    }
+                    input::-webkit-outer-spin-button,
+                    input::-webkit-inner-spin-button {
+                        -webkit-appearance: none;
+                        margin: 0;
+                    }
+                    input[type=number] {
+                        -moz-appearance: textfield;
+                    }
+                </style>
+            ''')
+            
+            with ui.column().classes('w-full h-full justify-between items-center text-center py-6 px-4'):
+                
+                # Titoli (terza riga ora identica alla seconda con text-xl)
+                with ui.column().classes('items-center gap-2 pt-4'):
+                    ui.label("Stampa i tuoi documenti").classes('text-4xl font-bold mb-1')
+                    ui.label("Inserisci il codice mandato su Whatsapp o via email").classes('text-xl')
+                    ui.label(f"Se hai inserito la chiavetta inserisci il codice é {usb_code}").classes('text-xl')
+                
+                # Input e pulsante Cerca al centro
+                with ui.column().classes('items-center gap-4'):
+                    code_input = ui.input(label="Codice").classes('w-64 text-2xl').props('type=number inputmode=numeric').on('blur', lambda: code_input.run_method('focus'))
+                    code_input.on('keydown.enter', lambda: self.search_by_code(code_input.value, container))
+                    ui.button("Cerca", on_click=lambda: self.search_by_code(code_input.value, container)).classes('px-20 py-2')
+
+                # Informativa e Privacy in basso a destra
+                with ui.row().classes('w-full justify-end pb-2'):
+                    ui.button("Informativa", on_click=policy.open).props('flat dense').classes('text-gray-400 text-xs')
 
             ui.timer(0.1, lambda: code_input.run_method('focus'), once=True)
 
@@ -598,6 +627,7 @@ class PrintingKiosk:
         container: Il contenitore ui.column() in cui disegnare
         on_back_callback: Funzione da chiamare per tornare indietro
         """
+        container.classes(remove='overflow-hidden', add='overflow-y-auto h-full')
         container.clear()
         
         # Carica la configurazione attuale se esiste
