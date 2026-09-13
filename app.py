@@ -133,6 +133,8 @@ class PrintingKiosk:
             'pages': 'Tutte',
             'format': 'A4'
         }
+        self.text_scale = 100
+        self.image_longest_side = 210
 
     def _search_worker(self, code):
         conn = None
@@ -299,7 +301,7 @@ class PrintingKiosk:
 
         selected = self.parse_page_selection(self.config['pages'], total_pages)
         pages_to_print = len(selected)
-        copies = int(self.config.get('copies') or 1)
+        copies = self.config['copies']
         size = self.config['format']
         is_color = (self.config['mode'] == "Colore")
         is_duplex = (self.config['duplex'] == "Fronte-Retro")
@@ -314,10 +316,10 @@ class PrintingKiosk:
         # 3. Calcolo fogli in base al layout
         if layout == "Metà per foglio":
             sheets_per_copy = pages_to_print * 2
-            base_cost = page_price * sheets_per_copy * copies
+            base_cost = page_price * sheets_per_copy
         elif layout == "Un quarto per foglio":
             sheets_per_copy = pages_to_print * 4
-            base_cost = page_price * sheets_per_copy * copies
+            base_cost = page_price * sheets_per_copy
         else:
             # Layout standard (Uno, Due, Quattro per foglio normali)
             pages_per_sheet = 2 if layout == "Due per foglio" else 4 if layout == "Quattro per foglio" else 1
@@ -329,9 +331,11 @@ class PrintingKiosk:
             if is_duplex:
                 duplex_sheets = pages_to_print // pages_per_sheet
                 leftover_pages = pages_to_print % pages_per_sheet
-                base_cost = (duplex_sheets * duplex_price + leftover_pages * page_price) * copies
+                base_cost = (duplex_sheets * duplex_price + leftover_pages * page_price)
             else:
-                base_cost = page_price * sheets_per_copy * copies
+                base_cost = page_price * sheets_per_copy
+
+        base_cost = base_cost * copies
 
         return round(base_cost + 1e-9, 2)
 
@@ -524,9 +528,37 @@ class PrintingKiosk:
             with ui.dialog() as funct, ui.card().classes('p-6 min-w-[300px]'):
                 ui.label("Funzioni aggiuntive").classes('text-xl font-bold mb-4')
                 
-                # Qui inserisci i widget o le funzioni della sovrafinestra
-                ui.label("Funzioni da definire...")
-                
+                with ui.card().classes('w-full p-4 mb-4 shadow-md'):
+                    with ui.row().classes('w-full items-center justify-between'):
+                        with ui.column().classes('gap-0'):
+                            ui.label("Riduzione Testo").classes('font-semibold text-lg')
+                            ui.label("Regola la dimensione del font").classes('text-sm text-gray-400')
+                        with ui.row().classes('items-center gap-3'):
+                            text_val_label = ui.label(f"{self.text_scale}%").classes('text-lg font-bold w-12 text-center')
+                            
+                            def change_text_scale(delta):
+                                self.text_scale = max(50, min(200, self.text_scale + delta))
+                                text_val_label.text = f"{self.text_scale}%"
+                                scale_pdf_text(self.current_file_path, self.text_scale)
+                                updateit = self.update_ui_elements()
+                                self.text_scale = 100
+                                text_val_label.text = f"{self.text_scale}%"
+                                funct.close()
+
+                            ui.button("▲", on_click=lambda: change_text_scale(10)).props('outline').classes('text-lg font-bold px-3 py-1')
+                            ui.button("▼", on_click=lambda: change_text_scale(-10)).props('outline').classes('text-lg font-bold px-3 py-1')
+
+                # Sezione 3: Ridimensionamento Immagini (Lato più lungo)
+                with ui.card().classes('w-full p-4 mb-4 shadow-md'):
+                    with ui.row().classes('w-full items-center justify-between'):
+                        with ui.column().classes('gap-0'):
+                            ui.label("Ridimensionamento Immagini").classes('font-semibold text-lg')
+                            ui.label("Dimensione del lato più lungo").classes('text-sm text-gray-400')
+                        ui.input(
+                            label="mm", 
+                            value= str(self.image_longest_side)
+                        ).classes('w-40').props('type=number inputmode=numeric').bind_value(self.config, 'image_longest_side')
+
                 with ui.row().classes('w-full justify-end mt-4'):
                     ui.button("Chiudi", on_click=funct.close).classes('bg-gray-500 text-white')
 
@@ -965,6 +997,113 @@ def readtmpprice(user_id):
         except (json.JSONDecodeError, KeyError):
             return "€ 0,00"
     
+def scale_pdf_text(input_pdf: str, percentage: float) -> str:
+    abs_input = os.path.abspath(input_pdf)
+    scale_factor = percentage / 100.0
+    output_dir = os.path.dirname(abs_input)
+    base_name = os.path.splitext(os.path.basename(abs_input))[0]
+    temp_output = os.path.join(output_dir, f"{base_name}_scaled.pdf")
+    
+    success = False
+    
+    # 1. Tentativo con Microsoft Word (tramite win32com su Windows)
+    if platform.system() == "Windows":
+        try:
+            import win32com.client
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            word.DisplayAlerts = False
+            
+            doc = word.Documents.Open(abs_input)
+            if doc.ReadOnly:
+                doc.ReadOnly = False
+                
+            for paragraph in doc.Paragraphs:
+                try:
+                    rng = paragraph.Range
+                    current_size = rng.Font.Size
+                    if current_size is not None:
+                        rng.Font.Size = current_size * scale_factor
+                    else:
+                        for word_item in rng.Words:
+                            try:
+                                w_size = word_item.Font.Size
+                                if w_size is not None:
+                                    word_item.Font.Size = w_size * scale_factor
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                            
+            doc.SaveAs2(temp_output, FileFormat=17)
+            doc.Close(False)
+            word.Quit()
+            success = True
+        except Exception:
+            success = False
+
+    # 2. Fallback su LibreOffice se Word non è disponibile o fallisce
+    if not success:
+        try:
+            import docx
+            
+            soffice_path = "soffice"
+            if platform.system() == "Windows":
+                potential_path = r"C:\Program Files\LibreOffice\program\soffice.exe"
+                if os.path.exists(potential_path):
+                    soffice_path = f'"{potential_path}"'
+            
+            # Converte il PDF in DOCX tramite LibreOffice headless
+            subprocess.run(
+                f'{soffice_path} --headless --convert-to docx "{abs_input}" --outdir "{output_dir}"', 
+                shell=True, check=True
+            )
+            
+            docx_path = os.path.join(output_dir, f"{base_name}.docx")
+            
+            if os.path.exists(docx_path):
+                # Modifica la dimensione dei caratteri nel file DOCX usando python-docx
+                doc_x = docx.Document(docx_path)
+                for p in doc_x.paragraphs:
+                    for run in p.runs:
+                        if run.font.size:
+                            run.font.size = int(run.font.size * scale_factor)
+                for table in doc_x.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            for p in cell.paragraphs:
+                                for run in p.runs:
+                                    if run.font.size:
+                                        run.font.size = int(run.font.size * scale_factor)
+
+                doc_x.save(docx_path)
+                
+                # Riconverte il DOCX modificato in PDF tramite LibreOffice
+                subprocess.run(
+                    f'{soffice_path} --headless --convert-to pdf "{docx_path}" --outdir "{output_dir}"', 
+                    shell=True, check=True
+                )
+                
+                generated_pdf = os.path.join(output_dir, f"{base_name}.pdf")
+                if os.path.exists(generated_pdf):
+                    if os.path.exists(temp_output):
+                        os.remove(temp_output)
+                    os.rename(generated_pdf, temp_output)
+                    
+                if os.path.exists(docx_path):
+                    os.remove(docx_path)
+                    
+                success = True
+        except Exception as e:
+            raise RuntimeError(f"Impossibile elaborare il PDF né con Word né con LibreOffice: {e}")
+
+    # Sostituisce il file originale con quello definitivo scalato
+    if success and os.path.exists(temp_output):
+        if os.path.exists(abs_input):
+            os.remove(abs_input)
+        os.rename(temp_output, abs_input)
+        
+    return abs_input
 
 app_instance = PrintingKiosk()
 
