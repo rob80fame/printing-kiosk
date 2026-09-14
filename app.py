@@ -13,6 +13,7 @@ import base64
 from PIL import Image
 from io import BytesIO
 import platform
+import traceback
 
 with open('config.json', 'r') as f:
     file = json.load(f)
@@ -346,18 +347,34 @@ class PrintingKiosk:
             self.price_label.set_text(self.totalprice)
 
     def prepare_print_pdf(self, file_path):
-        """Prepara il file PDF applicando layout e selezioni[cite: 2]."""
+        """Prepara il file PDF applicando layout e selezioni."""
         selected_pages = self.parse_page_selection(self.config['pages'], len(fitz.open(file_path)))
         
         input_doc = fitz.open(file_path)
         output_doc = fitz.open()
         
-        # Logica di layout[cite: 2]
+        # Logica di layout
         layout_val = self.config['layout']
         if layout_val in ("Due per foglio", "Quattro per foglio"):
             pages_per_sheet = 2 if layout_val == "Due per foglio" else 4
-            cols = 2 if pages_per_sheet > 1 else 1
-            rows = pages_per_sheet // cols
+            
+            format_val = self.config.get('format', 'A4')
+            
+            if format_val == "A3":
+                if layout_val == "Due per foglio":
+                    target_w, target_h = 1190.55, 841.89  # A3 Landscape
+                    cols, rows = 2, 1
+                else:
+                    target_w, target_h = 841.89, 1190.55  # A3 Portrait
+                    cols, rows = 2, 2
+            else:  # A4
+                if layout_val == "Due per foglio":
+                    target_w, target_h = 841.89, 595.27   # A4 Landscape (Ruotato in orizzontale)
+                    cols, rows = 2, 1                     # <--- 2 colonne, 1 riga: affiancate in orizzontale!
+                else:
+                    target_w, target_h = 595.27, 841.89   # A4 Portrait
+                    cols, rows = 2, 2                     # <--- Griglia 2x2 per 4 pagine
+                
             i = 0
             while i < len(selected_pages):
                 group_indexes = selected_pages[i:i+pages_per_sheet]
@@ -395,21 +412,32 @@ class PrintingKiosk:
                 combined.save(buf, format="PNG")
                 img_bytes = buf.getvalue()
 
-                rect = fitz.Rect(0, 0, combined.width, combined.height)
-                page = output_doc.new_page(width=combined.width, height=combined.height)
+                page = output_doc.new_page(width=target_w, height=target_h)
+
+                max_w = target_w - 40
+                max_h = target_h - 40
+                scale = min(max_w / combined.width, max_h / combined.height)
+                
+                dest_w = combined.width * scale
+                dest_h = combined.height * scale
+                x0 = (target_w - dest_w) / 2
+                y0 = (target_h - dest_h) / 2
+
+                rect = fitz.Rect(x0, y0, x0 + dest_w, y0 + dest_h)
                 page.insert_image(rect, stream=img_bytes)
 
                 i += pages_per_sheet
         else:
             for page_num in selected_pages:
-                output_doc.insert_pdf(input_doc, from_page=page_num, to_page=page_num)
+                idx = page_num - 1
+                output_doc.insert_pdf(input_doc, from_page=idx, to_page=idx)
 
+        os.makedirs("tmp", exist_ok=True)
         tmp_path = os.path.join("tmp", f"print_{uuid.uuid4().hex[:6]}.pdf")
         output_doc.save(tmp_path)
         input_doc.close()
         output_doc.close()
         return tmp_path
-
     def merge_docs(self, file_list):
         tmp_dir = os.path.join(os.getcwd(), "tmp")
         if not os.path.exists(tmp_dir):
@@ -829,136 +857,144 @@ class PrintingKiosk:
             return list(range(total_pages))
 
     def generate_preview_images(self, file_path, mode, layout, pages_str):
-        """Genera anteprime (Base64) basate su impostazioni di stampa."""
+        """Genera anteprime (Base64) basate su impostazioni di stampa, perfettamente allineate a prepare_print_pdf."""
         doc = fitz.open(file_path)
-        total_pages = len(doc)
-        page_indices = self.parse_page_selection(pages_str, total_pages)
-        
-        is_bw = (mode == "Bianco e Nero")
         images_base64 = []
-
-        # Funzione helper per ottenere immagine pagina
-        def get_img(page_idx):
-            page = doc[page_idx]
-            # Matrice di rendering (1.5 per una buona qualità/peso)
-            matrix = fitz.Matrix(4, 4)
-            if is_bw:
-                pix = page.get_pixmap(matrix=matrix, colorspace=fitz.csGRAY)
-                img = Image.frombytes("L", (pix.width, pix.height), pix.samples).convert("RGB")
-            else:
-                pix = page.get_pixmap(matrix=matrix)
-                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            return img
-
-
-        # Funzione helper per ottenere il ritaglio (tile) di una porzione di pagina
-        def get_tile_img(page_idx, clip_rect):
-            page = doc[page_idx]
-            matrix = fitz.Matrix(4, 4)
-            if is_bw:
-                pix = page.get_pixmap(matrix=matrix, clip=clip_rect, colorspace=fitz.csGRAY)
-                img = Image.frombytes("L", (pix.width, pix.height), pix.samples).convert("RGB")
-            else:
-                pix = page.get_pixmap(matrix=matrix, clip=clip_rect)
-                img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-            return img
-
-        # Logica Layout
-        if layout == "Uno per foglio":
-            for idx in page_indices:
-                img = get_img(idx)
-                img.thumbnail((400, 600)) # Ridimensiona per web
-                buf = BytesIO()
-                img.save(buf, format="PNG")
-                images_base64.append(base64.b64encode(buf.getvalue()).decode())
-
-        elif layout == "Due per foglio":
-            # Processa a coppie
-            for i in range(0, len(page_indices), 2):
-                img1 = get_img(page_indices[i])
-                img2 = get_img(page_indices[i+1]) if (i+1) < len(page_indices) else None
-                
-                w = img1.width + (img2.width if img2 else 0)
-                h = max(img1.height, img2.height if img2 else 0)
-                combined = Image.new("RGB", (w, h), (255, 255, 255))
-                combined.paste(img1, (0, 0))
-                if img2: combined.paste(img2, (img1.width, 0))
-                
-                combined.thumbnail((600, 400))
-                buf = BytesIO()
-                combined.save(buf, format="PNG")
-                images_base64.append(base64.b64encode(buf.getvalue()).decode())
-
-        elif layout == "Quattro per foglio":
-            # Processa a gruppi di 4
-            for i in range(0, len(page_indices), 4):
-                imgs = [get_img(page_indices[i+j]) if (i+j) < len(page_indices) else None for j in range(4)]
-                
-                tile_w = max(im.width for im in imgs if im)
-                tile_h = max(im.height for im in imgs if im)
-                combined = Image.new("RGB", (tile_w * 2, tile_h * 2), (255, 255, 255))
-                
-                positions = [(0, 0), (tile_w, 0), (0, tile_h), (tile_w, tile_h)]
-                for k, im in enumerate(imgs):
-                    if im:
-                        im_resized = im.resize((tile_w, tile_h), Image.Resampling.LANCZOS)
-                        combined.paste(im_resized, positions[k])
-                
-                combined.thumbnail((500, 500))
-                buf = BytesIO()
-                combined.save(buf, format="PNG")
-                images_base64.append(base64.b64encode(buf.getvalue()).decode())
-
-        elif layout == "Metà per foglio":
-            # Divide ogni pagina selezionata in 2 parti (es. formato A2 diviso in 2)
-            for idx in page_indices:
-                page = doc[idx]
-                r = page.rect
-                w, h = r.width, r.height
-                
-                # Se è orizzontale taglia in 2 colonne, se verticale in 2 righe
-                cols, rows = (2, 1) if w > h else (1, 2)
-                tile_w = w / cols
-                tile_h = h / rows
-                
-                for row in range(rows):
-                    for col in range(cols):
-                        x0 = r.x0 + col * tile_w
-                        y0 = r.y0 + row * tile_h
-                        clip_rect = fitz.Rect(x0, y0, x0 + tile_w, y0 + tile_h)
-                        
-                        img = get_tile_img(idx, clip_rect)
-                        img.thumbnail((400, 600))
-                        buf = BytesIO()
-                        img.save(buf, format="PNG")
-                        images_base64.append(base64.b64encode(buf.getvalue()).decode())
-
-        elif layout == "Un quarto per foglio":
-            # Divide ogni pagina selezionata in 4 parti (es. formato A1 diviso in 4)
-            for idx in page_indices:
-                page = doc[idx]
-                r = page.rect
-                w, h = r.width, r.height
-                
-                cols, rows = 2, 2
-                tile_w = w / cols
-                tile_h = h / rows
-                
-                for row in range(rows):
-                    for col in range(cols):
-                        x0 = r.x0 + col * tile_w
-                        y0 = r.y0 + row * tile_h
-                        clip_rect = fitz.Rect(x0, y0, x0 + tile_w, y0 + tile_h)
-                        
-                        img = get_tile_img(idx, clip_rect)
-                        img.thumbnail((400, 400))
-                        buf = BytesIO()
-                        img.save(buf, format="PNG")
-                        images_base64.append(base64.b64encode(buf.getvalue()).decode())
-
-        doc.close()
-        return images_base64
         
+        try:
+            total_pages = len(doc)
+            page_indices = self.parse_page_selection(pages_str, total_pages)
+            is_bw = (mode == "Bianco e Nero")
+            format_val = self.config.get('format', 'A4')
+
+            # Funzione helper per ottenere immagine pagina intera
+            def get_img(page_idx):
+                page = doc[page_idx]
+                matrix = fitz.Matrix(2, 2)  # Matrice ottimizzata per anteprime web
+                if is_bw:
+                    pix = page.get_pixmap(matrix=matrix, colorspace=fitz.csGRAY)
+                    img = Image.frombytes("L", (pix.width, pix.height), pix.samples).convert("RGB")
+                else:
+                    pix = page.get_pixmap(matrix=matrix)
+                    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                return img
+
+            # Funzione helper per il ritaglio (tile) di una porzione
+            def get_tile_img(page_idx, clip_rect):
+                page = doc[page_idx]
+                matrix = fitz.Matrix(2, 2)
+                if is_bw:
+                    pix = page.get_pixmap(matrix=matrix, clip=clip_rect, colorspace=fitz.csGRAY)
+                    img = Image.frombytes("L", (pix.width, pix.height), pix.samples).convert("RGB")
+                else:
+                    pix = page.get_pixmap(matrix=matrix, clip=clip_rect)
+                    img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                return img
+
+            # Logica Layout
+            if layout == "Uno per foglio":
+                for idx in page_indices:
+                    img = get_img(idx)
+                    img.thumbnail((400, 600))
+                    buf = BytesIO()
+                    img.save(buf, format="PNG")
+                    images_base64.append(base64.b64encode(buf.getvalue()).decode())
+
+            elif layout in ("Due per foglio", "Quattro per foglio"):
+                pages_per_sheet = 2 if layout == "Due per foglio" else 4
+                
+                if format_val == "A3":
+                    if layout == "Due per foglio":
+                        cols, rows = 2, 1
+                    else:
+                        cols, rows = 2, 2
+                else:  # A4
+                    if layout == "Due per foglio":
+                        cols, rows = 2, 1  # 2 colonne, 1 riga affiancate in orizzontale <--- CORRETTO
+                    else:
+                        cols, rows = 2, 2  # Griglia 2x2
+                            
+                for i in range(0, len(page_indices), pages_per_sheet):
+                    group_indexes = page_indices[i:i+pages_per_sheet]
+                    imgs = []
+                    for p_idx in group_indexes:
+                        imgs.append(get_img(p_idx))
+                        
+                    while len(imgs) < pages_per_sheet:
+                        if imgs:
+                            w0, h0 = imgs[0].size
+                        else:
+                            w0, h0 = (100, 100)
+                        imgs.append(Image.new("RGB", (w0, h0), (255, 255, 255)))
+                        
+                    tile_w = max(im.width for im in imgs)
+                    tile_h = max(im.height for im in imgs)
+                    combined_w = tile_w * cols
+                    combined_h = tile_h * rows
+                    combined = Image.new("RGB", (combined_w, combined_h), (255, 255, 255))
+                    
+                    for idx_img, im in enumerate(imgs):
+                        col = idx_img % cols
+                        row = idx_img // cols
+                        im_resized = im.resize((tile_w, tile_h), Image.Resampling.LANCZOS)
+                        combined.paste(im_resized, (col * tile_w, row * tile_h))
+                        
+                    combined.thumbnail((600, 400))
+                    buf = BytesIO()
+                    combined.save(buf, format="PNG")
+                    images_base64.append(base64.b64encode(buf.getvalue()).decode())
+
+            elif layout == "Metà per foglio":
+                for idx in page_indices:
+                    page = doc[idx]
+                    r = page.rect
+                    w, h = r.width, r.height
+                    
+                    cols, rows = (2, 1) if w > h else (1, 2)
+                    tile_w = w / cols
+                    tile_h = h / rows
+                    
+                    for row in range(rows):
+                        for col in range(cols):
+                            x0 = r.x0 + col * tile_w
+                            y0 = r.y0 + row * tile_h
+                            clip_rect = fitz.Rect(x0, y0, x0 + tile_w, y0 + tile_h)
+                            
+                            img = get_tile_img(idx, clip_rect)
+                            img.thumbnail((400, 600))
+                            buf = BytesIO()
+                            img.save(buf, format="PNG")
+                            images_base64.append(base64.b64encode(buf.getvalue()).decode())
+
+            elif layout == "Un quarto per foglio":
+                for idx in page_indices:
+                    page = doc[idx]
+                    r = page.rect
+                    w, h = r.width, r.height
+                    
+                    cols, rows = 2, 2
+                    tile_w = w / cols
+                    tile_h = h / rows
+                    
+                    for row in range(rows):
+                        for col in range(cols):
+                            x0 = r.x0 + col * tile_w
+                            y0 = r.y0 + row * tile_h
+                            clip_rect = fitz.Rect(x0, y0, x0 + tile_w, y0 + tile_h)
+                            
+                            img = get_tile_img(idx, clip_rect)
+                            img.thumbnail((400, 400))
+                            buf = BytesIO()
+                            img.save(buf, format="PNG")
+                            images_base64.append(base64.b64encode(buf.getvalue()).decode())
+
+        except Exception as e:
+            print(f"[ERRORE CRITICO in generate_preview_images]: {e}", file=sys.stderr)
+            traceback.print_exc()
+        finally:
+            doc.close()
+
+        return images_base64
 
 Tmpjson = 'tmp.json'
 def registertmpprice(user_id, amount_str):
