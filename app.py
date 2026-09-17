@@ -5,7 +5,7 @@ import asyncio
 import subprocess
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from nicegui import ui, run
+from nicegui import ui, run, app
 import json
 import uuid
 import fitz
@@ -453,21 +453,26 @@ class PrintingKiosk:
                 continue
                 
             ext = os.path.splitext(f)[1].lower()
+            haspdf = False
             
             try:
                 if ext == ".pdf":
                     with fitz.open(f) as doc:
                         doc_unito.insert_pdf(doc)
+                    haspdf = True
                 
                 elif ext in [".jpg", ".jpeg", ".png", ".bmp"]:
-                    img_doc = fitz.open()
-                    img = fitz.open(f)
-                    rect = img[0].rect
-                    pdfbytes = img.convert_to_pdf()
-                    img_pdf = fitz.open("pdf", pdfbytes)
-                    doc_unito.insert_pdf(img_pdf)
-                    img.close()
-                    img_doc.close()
+                    if haspdf == True:
+                        img_doc = fitz.open()
+                        img = fitz.open(f)
+                        rect = img[0].rect
+                        pdfbytes = img.convert_to_pdf()
+                        img_pdf = fitz.open("pdf", pdfbytes)
+                        doc_unito.insert_pdf(img_pdf)
+                        img.close()
+                        img_doc.close()
+                    else:
+                        return f, False
                 
                 else:
                     print(f"Formato non supportato: {ext}")
@@ -477,14 +482,272 @@ class PrintingKiosk:
 
         doc_unito.save(output_path)
         doc_unito.close()
-        return output_path
+        return output_path, True
 
+    def render_img_resizer(self, container, img_file):
+        container.clear()
+        # Contenitore a schermo intero senza barre di scorrimento
+        container.classes(remove='overflow-y-auto overflow-hidden flex-col', 
+                        add='relative w-full h-screen overflow-hidden flex items-center justify-center bg-white')
+        
+        uid = uuid.uuid4().hex[:6]
+        
+        # 1. Calcola aspect ratio iniziale
+        init_w, init_h = 250, 250
+        if os.path.exists(img_file):
+            try:
+                with Image.open(img_file) as im:
+                    orig_w, orig_h = im.size
+                    init_h = int(250 * (orig_h / orig_w))
+            except Exception:
+                pass
+
+        # 2. Configura rotta statica
+        if os.path.exists(img_file):
+            img_dir = os.path.dirname(os.path.abspath(img_file))
+            img_name = os.path.basename(img_file)
+            route_path = f'/user_images_{uid}'
+            app.add_static_files(route_path, img_dir)
+            img_url = f'{route_path}/{img_name}'
+        else:
+            img_url = img_file
+        
+        # Callbacks
+        def on_indietro_click():
+            self.render_file_grid(self.current_file_list, container)
+
+        # 1. Registra l'ascoltatore dell'evento sincrono
+        async def on_prosegui_click():
+            try:
+                # 1. Recupera le coordinate usando container.client
+                box_data = await container.client.run_javascript(f'''
+                    (function() {{
+                        const box = document.getElementById("drag-box-{uid}");
+                        return box ? {{
+                            left: box.offsetLeft,
+                            top: box.offsetTop,
+                            width: box.offsetWidth,
+                            height: box.offsetHeight
+                        }} : null;
+                    }})()
+                ''', timeout=3.0)
+
+                if not box_data:
+                    ui.notify("Impossibile recuperare le coordinate dell'immagine.", color="negative")
+                    return
+
+                # 2. Genera il file PDF con PyMuPDF
+                x, y = float(box_data['left']), float(box_data['top'])
+                w, h = float(box_data['width']), float(box_data['height'])
+
+                doc = fitz.open()
+                page = doc.new_page(width=595.27, height=841.89)
+                rect = fitz.Rect(x, y, x + w, y + h)
+                page.insert_image(rect, filename=img_file, keep_proportion=True)
+
+                os.makedirs("tmp", exist_ok=True)
+                tmp_file = os.path.join("tmp", f"print_{uuid.uuid4().hex[:6]}.pdf")
+                doc.save(tmp_file, garbage=4, deflate=True)
+                doc.close()
+
+                # 3. Transizione alla nuova schermata
+                self.render_print_config(container, tmp_file, False)
+
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                ui.notify(f"Errore generazione PDF: {str(e)}", color="negative")# 4. DOM: Pulsanti in alto a sinistra e Foglio al centro
+        with container:
+            # Usare stili circoscritti solo agli elementi del resizer
+            ui.add_head_html(f'''
+            <style>
+                .a4-container-{uid} {{
+                    width: 595px !important;
+                    height: 841px !important;
+                    background-color: white !important;
+                    position: relative !important;
+                    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+                    overflow: hidden;
+                    border-radius: 4px;
+                    flex-shrink: 0;
+                    user-select: none;
+                }}
+                .draggable-box-{uid} {{
+                    position: absolute;
+                    left: 100px;
+                    top: 100px;
+                    width: {init_w}px;
+                    height: {init_h}px;
+                    touch-action: none;
+                    cursor: move;
+                    border: 2px dashed rgba(59, 130, 246, 0.9);
+                    background-color: rgba(59, 130, 246, 0.05);
+                    box-sizing: border-box;
+                    user-select: none;
+                }}
+                .draggable-box-{uid} img {{
+                    width: 100%;
+                    height: 100%;
+                    object-fit: fill;
+                    pointer-events: none;
+                    user-select: none;
+                }}
+                .resizer-{uid} {{
+                    width: 22px;
+                    height: 22px;
+                    background: #3b82f6;
+                    position: absolute;
+                    border-radius: 50%;
+                    border: 3px solid white;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                    z-index: 30;
+                }}
+                .resizer-nw-{uid} {{ left: -11px; top: -11px; cursor: nwse-resize; }}
+                .resizer-se-{uid} {{ right: -11px; bottom: -11px; cursor: nwse-resize; }}
+            </style>
+            ''')
+                    # Colonna pulsanti ancorata in alto a sinistra
+            
+            with ui.column().classes('absolute top-6 left-6 z-50 gap-3'):
+                ui.button('INDIETRO', on_click=on_indietro_click).props('outline').classes(
+                    'font-bold px-6 py-2.5 rounded-lg shadow-md hover:bg-gray-50 w-32'
+                )
+                ui.button('PROSEGUI', on_click=on_prosegui_click).classes(
+                    'w-full py-6 font-bold bg-green-600 px-6 py-2.5 rounded-lg shadow-md hover:bg-blue-700 w-32'
+                )
+
+            # Foglio A4 centrato
+            with ui.element('div').classes(f'a4-container-{uid}').props(f'id="a4-sheet-{uid}"'):
+                with ui.element('div').classes(f'draggable-box-{uid}').props(f'id="drag-box-{uid}"'):
+                    ui.element('img').props(f'src="{img_url}" alt="Immagine"')
+                    ui.element('div').classes(f'resizer-{uid} resizer-nw-{uid}').props(f'id="resizer-nw-{uid}"')
+                    ui.element('div').classes(f'resizer-{uid} resizer-se-{uid}').props(f'id="resizer-se-{uid}"')
+
+        # 5. JavaScript per Drag e Resize
+            ui.run_javascript(f'''
+            (function() {{
+                const uid = "{uid}";
+                let attempts = 0;
+
+                function init() {{
+                    const box = document.getElementById("drag-box-" + uid);
+                    const resizerNW = document.getElementById("resizer-nw-" + uid);
+                    const resizerSE = document.getElementById("resizer-se-" + uid);
+                    const sheet = document.getElementById("a4-sheet-" + uid);
+
+                    if (!box || !resizerNW || !resizerSE || !sheet) {{
+                        if (attempts++ < 60) setTimeout(init, 50);
+                        return;
+                    }}
+
+                    let isDragging = false, isResizingNW = false, isResizingSE = false;
+                    let startX = 0, startY = 0;
+                    let startWidth = 0, startHeight = 0, startLeft = 0, startTop = 0;
+
+                    function getCoords(e) {{
+                        if (e.touches && e.touches.length > 0) {{
+                            return {{ x: e.touches[0].clientX, y: e.touches[0].clientY }};
+                        }}
+                        return {{ x: e.clientX, y: e.clientY }};
+                    }}
+
+                    function startDrag(e) {{
+                        if (e.target === resizerNW || e.target === resizerSE) return;
+                        e.preventDefault();
+                        isDragging = true;
+                        const coords = getCoords(e);
+                        startX = coords.x - box.offsetLeft;
+                        startY = coords.y - box.offsetTop;
+                        attachEvents();
+                    }}
+
+                    function startResizeNW(e) {{
+                        e.preventDefault();
+                        e.stopPropagation();
+                        isResizingNW = true;
+                        const coords = getCoords(e);
+                        startX = coords.x; startY = coords.y;
+                        startWidth = box.offsetWidth; startHeight = box.offsetHeight;
+                        startLeft = box.offsetLeft; startTop = box.offsetTop;
+                        attachEvents();
+                    }}
+
+                    function startResizeSE(e) {{
+                        e.preventDefault();
+                        e.stopPropagation();
+                        isResizingSE = true;
+                        const coords = getCoords(e);
+                        startX = coords.x; startY = coords.y;
+                        startWidth = box.offsetWidth; startHeight = box.offsetHeight;
+                        attachEvents();
+                    }}
+
+                    function onMove(e) {{
+                        if (!isDragging && !isResizingNW && !isResizingSE) return;
+                        const coords = getCoords(e);
+                        const sheetW = sheet.clientWidth || 595;
+                        const sheetH = sheet.clientHeight || 841;
+
+                        if (isDragging) {{
+                            let newLeft = Math.max(0, Math.min(coords.x - startX, sheetW - box.offsetWidth));
+                            let newTop = Math.max(0, Math.min(coords.y - startY, sheetH - box.offsetHeight));
+                            box.style.left = newLeft + "px";
+                            box.style.top = newTop + "px";
+                        }} else if (isResizingNW) {{
+                            let dx = coords.x - startX, dy = coords.y - startY;
+                            let newW = startWidth - dx, newH = startHeight - dy;
+                            let newL = startLeft + dx, newT = startTop + dy;
+                            if (newW >= 40 && newL >= 0) {{ box.style.width = newW + "px"; box.style.left = newL + "px"; }}
+                            if (newH >= 40 && newT >= 0) {{ box.style.height = newH + "px"; box.style.top = newT + "px"; }}
+                        }} else if (isResizingSE) {{
+                            let maxW = sheetW - box.offsetLeft, maxH = sheetH - box.offsetTop;
+                            let newW = Math.max(40, Math.min(startWidth + (coords.x - startX), maxW));
+                            let newH = Math.max(40, Math.min(startHeight + (coords.y - startY), maxH));
+                            box.style.width = newW + "px";
+                            box.style.height = newH + "px";
+                        }}
+                    }}
+
+                    function stopAction() {{
+                        isDragging = isResizingNW = isResizingSE = false;
+                        detachEvents();
+                    }}
+
+                    function attachEvents() {{
+                        window.addEventListener("mousemove", onMove);
+                        window.addEventListener("touchmove", onMove, {{ passive: false }});
+                        window.addEventListener("mouseup", stopAction);
+                        window.addEventListener("touchend", stopAction);
+                    }}
+
+                    function detachEvents() {{
+                        window.removeEventListener("mousemove", onMove);
+                        window.removeEventListener("touchmove", onMove);
+                        window.removeEventListener("mouseup", stopAction);
+                        window.removeEventListener("touchend", stopAction);
+                    }}
+
+                    box.addEventListener("mousedown", startDrag);
+                    box.addEventListener("touchstart", startDrag, {{ passive: false }});
+                    resizerNW.addEventListener("mousedown", startResizeNW);
+                    resizerNW.addEventListener("touchstart", startResizeNW, {{ passive: false }});
+                    resizerSE.addEventListener("mousedown", startResizeSE);
+                    resizerSE.addEventListener("touchstart", startResizeSE, {{ passive: false }});
+                }}
+
+                init();
+            }})();
+            ''')
+    
     def print_selected_files(self, container):
         if not self.selected_files:
             ui.notify("Seleziona almeno un file!", type='warning')
             return
-        tmp_file = self.merge_docs(list(self.selected_files))
-        self.render_print_config(container, tmp_file)
+        tmp_file, ispdf = self.merge_docs(list(self.selected_files))
+        if ispdf == True:
+            self.render_print_config(container, tmp_file, True)
+        else:
+            self.render_img_resizer(container, tmp_file)
         
         self.selected_files.clear()
             
@@ -545,47 +808,37 @@ class PrintingKiosk:
 
         return []
         
-    def render_print_config(self, container, file_path):
+    def render_print_config(self, container, file_path, haspdf):
         container.clear()
+        
         self.current_file_path = file_path
 
         control_classes = 'w-full text-xl'
-
-        # Contenitore principale a schermo intero
+            # Contenitore principale a schermo intero
         with container.classes('w-full h-screen overflow-hidden'):
+            
             with ui.dialog() as funct, ui.card().classes('p-6 min-w-[300px]'):
                 ui.label("Funzioni aggiuntive").classes('text-xl font-bold mb-4')
-                
-                with ui.card().classes('w-full p-4 mb-4 shadow-md'):
-                    with ui.row().classes('w-full items-center justify-between'):
-                        with ui.column().classes('gap-0'):
-                            ui.label("Riduzione Testo").classes('font-semibold text-lg')
-                            ui.label("Regola la dimensione del font").classes('text-sm text-gray-400')
-                        with ui.row().classes('items-center gap-3'):
-                            text_val_label = ui.label(f"{self.text_scale}%").classes('text-lg font-bold w-12 text-center')
-                            
-                            def change_text_scale(delta):
-                                self.text_scale = max(50, min(200, self.text_scale + delta))
-                                text_val_label.text = f"{self.text_scale}%"
-                                scale_pdf_text(self.current_file_path, self.text_scale)
-                                updateit = self.update_ui_elements()
-                                self.text_scale = 100
-                                text_val_label.text = f"{self.text_scale}%"
-                                funct.close()
+                if haspdf == True:
+                    with ui.card().classes('w-full p-4 mb-4 shadow-md'):
+                        with ui.row().classes('w-full items-center justify-between'):
+                            with ui.column().classes('gap-0'):
+                                ui.label("Riduzione Testo").classes('font-semibold text-lg')
+                                ui.label("Regola la dimensione del font").classes('text-sm text-gray-400')
+                            with ui.row().classes('items-center gap-3'):
+                                text_val_label = ui.label(f"{self.text_scale}%").classes('text-lg font-bold w-12 text-center')
+                                
+                                def change_text_scale(delta):
+                                    self.text_scale = max(50, min(200, self.text_scale + delta))
+                                    text_val_label.text = f"{self.text_scale}%"
+                                    scale_pdf_text(self.current_file_path, self.text_scale)
+                                    updateit = self.update_ui_elements()
+                                    self.text_scale = 100
+                                    text_val_label.text = f"{self.text_scale}%"
+                                    funct.close()
 
-                            ui.button("▲", on_click=lambda: change_text_scale(10)).props('outline').classes('text-lg font-bold px-3 py-1')
-                            ui.button("▼", on_click=lambda: change_text_scale(-10)).props('outline').classes('text-lg font-bold px-3 py-1')
-
-                # Sezione 3: Ridimensionamento Immagini (Lato più lungo)
-                with ui.card().classes('w-full p-4 mb-4 shadow-md'):
-                    with ui.row().classes('w-full items-center justify-between'):
-                        with ui.column().classes('gap-0'):
-                            ui.label("Ridimensionamento Immagini").classes('font-semibold text-lg')
-                            ui.label("Dimensione del lato più lungo").classes('text-sm text-gray-400')
-                        ui.input(
-                            label="mm", 
-                            value= str(self.image_longest_side)
-                        ).classes('w-40').props('type=number inputmode=numeric').bind_value(self.config, 'image_longest_side')
+                                ui.button("▲", on_click=lambda: change_text_scale(10)).props('outline').classes('text-lg font-bold px-3 py-1')
+                                ui.button("▼", on_click=lambda: change_text_scale(-10)).props('outline').classes('text-lg font-bold px-3 py-1')
 
                 with ui.row().classes('w-full justify-end mt-4'):
                     ui.button("Chiudi", on_click=funct.close).classes('bg-gray-500 text-white')
