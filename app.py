@@ -543,7 +543,7 @@ class PrintingKiosk:
                 doc = fitz.open()
                 page = doc.new_page(width=595.27, height=841.89)
                 rect = fitz.Rect(x, y, x + w, y + h)
-                page.insert_image(rect, filename=img_file, keep_proportion=True)
+                page.insert_image(rect, filename=img_file, keep_proportion=bool(keep_prop_checkbox.value))
 
                 os.makedirs("tmp", exist_ok=True)
                 tmp_file = os.path.join("tmp", f"print_{uuid.uuid4().hex[:6]}.pdf")
@@ -613,9 +613,14 @@ class PrintingKiosk:
                     'font-bold px-6 py-2.5 rounded-lg shadow-md hover:bg-gray-50 w-32'
                 )
                 ui.button('PROSEGUI', on_click=on_prosegui_click).classes(
-                    'w-full py-6 font-bold bg-green-600 px-6 py-2.5 rounded-lg shadow-md hover:bg-blue-700 w-32'
+                    'font-bold px-6 py-2.5 rounded-lg shadow-md hover:bg-gray-50 w-32'
                 )
+                keep_prop_checkbox = ui.checkbox('Mantieni proporzioni', value=True).classes('text-gray-800 font-semibold text-sm mt-1')
 
+                keep_prop_checkbox.on_value_change(
+                    lambda e: ui.run_javascript(f'window.keepAspect_{uid} = {str(e.value).lower()};')
+                )
+                
             # Foglio A4 centrato
             with ui.element('div').classes(f'a4-container-{uid}').props(f'id="a4-sheet-{uid}"'):
                 with ui.element('div').classes(f'draggable-box-{uid}').props(f'id="drag-box-{uid}"'):
@@ -625,119 +630,159 @@ class PrintingKiosk:
 
         # 5. JavaScript per Drag e Resize
             ui.run_javascript(f'''
-            (function() {{
-                const uid = "{uid}";
-                let attempts = 0;
+                (function() {{
+                    const uid = "{uid}";
+                    window["keepAspect_" + uid] = true;
 
-                function init() {{
-                    const box = document.getElementById("drag-box-" + uid);
-                    const resizerNW = document.getElementById("resizer-nw-" + uid);
-                    const resizerSE = document.getElementById("resizer-se-" + uid);
-                    const sheet = document.getElementById("a4-sheet-" + uid);
+                    let attempts = 0;
 
-                    if (!box || !resizerNW || !resizerSE || !sheet) {{
-                        if (attempts++ < 60) setTimeout(init, 50);
-                        return;
-                    }}
+                    function init() {{
+                        const box = document.getElementById("drag-box-" + uid);
+                        const resizerNW = document.getElementById("resizer-nw-" + uid);
+                        const resizerSE = document.getElementById("resizer-se-" + uid);
+                        const sheet = document.getElementById("a4-sheet-" + uid);
 
-                    let isDragging = false, isResizingNW = false, isResizingSE = false;
-                    let startX = 0, startY = 0;
-                    let startWidth = 0, startHeight = 0, startLeft = 0, startTop = 0;
-
-                    function getCoords(e) {{
-                        if (e.touches && e.touches.length > 0) {{
-                            return {{ x: e.touches[0].clientX, y: e.touches[0].clientY }};
+                        if (!box || !resizerNW || !resizerSE || !sheet) {{
+                            if (attempts++ < 60) setTimeout(init, 50);
+                            return;
                         }}
-                        return {{ x: e.clientX, y: e.clientY }};
-                    }}
 
-                    function startDrag(e) {{
-                        if (e.target === resizerNW || e.target === resizerSE) return;
-                        e.preventDefault();
-                        isDragging = true;
-                        const coords = getCoords(e);
-                        startX = coords.x - box.offsetLeft;
-                        startY = coords.y - box.offsetTop;
-                        attachEvents();
-                    }}
+                        let isDragging = false, isResizingNW = false, isResizingSE = false;
+                        let startX = 0, startY = 0;
+                        let startWidth = 0, startHeight = 0, startLeft = 0, startTop = 0;
+                        let aspectRatio = 1;
 
-                    function startResizeNW(e) {{
-                        e.preventDefault();
-                        e.stopPropagation();
-                        isResizingNW = true;
-                        const coords = getCoords(e);
-                        startX = coords.x; startY = coords.y;
-                        startWidth = box.offsetWidth; startHeight = box.offsetHeight;
-                        startLeft = box.offsetLeft; startTop = box.offsetTop;
-                        attachEvents();
-                    }}
-
-                    function startResizeSE(e) {{
-                        e.preventDefault();
-                        e.stopPropagation();
-                        isResizingSE = true;
-                        const coords = getCoords(e);
-                        startX = coords.x; startY = coords.y;
-                        startWidth = box.offsetWidth; startHeight = box.offsetHeight;
-                        attachEvents();
-                    }}
-
-                    function onMove(e) {{
-                        if (!isDragging && !isResizingNW && !isResizingSE) return;
-                        const coords = getCoords(e);
-                        const sheetW = sheet.clientWidth || 595;
-                        const sheetH = sheet.clientHeight || 841;
-
-                        if (isDragging) {{
-                            let newLeft = Math.max(0, Math.min(coords.x - startX, sheetW - box.offsetWidth));
-                            let newTop = Math.max(0, Math.min(coords.y - startY, sheetH - box.offsetHeight));
-                            box.style.left = newLeft + "px";
-                            box.style.top = newTop + "px";
-                        }} else if (isResizingNW) {{
-                            let dx = coords.x - startX, dy = coords.y - startY;
-                            let newW = startWidth - dx, newH = startHeight - dy;
-                            let newL = startLeft + dx, newT = startTop + dy;
-                            if (newW >= 40 && newL >= 0) {{ box.style.width = newW + "px"; box.style.left = newL + "px"; }}
-                            if (newH >= 40 && newT >= 0) {{ box.style.height = newH + "px"; box.style.top = newT + "px"; }}
-                        }} else if (isResizingSE) {{
-                            let maxW = sheetW - box.offsetLeft, maxH = sheetH - box.offsetTop;
-                            let newW = Math.max(40, Math.min(startWidth + (coords.x - startX), maxW));
-                            let newH = Math.max(40, Math.min(startHeight + (coords.y - startY), maxH));
-                            box.style.width = newW + "px";
-                            box.style.height = newH + "px";
+                        function getCoords(e) {{
+                            if (e.touches && e.touches.length > 0) {{
+                                return {{ x: e.touches[0].clientX, y: e.touches[0].clientY }};
+                            }}
+                            return {{ x: e.clientX, y: e.clientY }};
                         }}
+
+                        function startDrag(e) {{
+                            if (e.target === resizerNW || e.target === resizerSE) return;
+                            e.preventDefault();
+                            isDragging = true;
+                            const coords = getCoords(e);
+                            startX = coords.x - box.offsetLeft;
+                            startY = coords.y - box.offsetTop;
+                            attachEvents();
+                        }}
+
+                        function startResizeNW(e) {{
+                            e.preventDefault();
+                            e.stopPropagation();
+                            isResizingNW = true;
+                            const coords = getCoords(e);
+                            startX = coords.x; startY = coords.y;
+                            startWidth = box.offsetWidth; startHeight = box.offsetHeight;
+                            startLeft = box.offsetLeft; startTop = box.offsetTop;
+                            aspectRatio = startWidth / startHeight;
+                            attachEvents();
+                        }}
+
+                        function startResizeSE(e) {{
+                            e.preventDefault();
+                            e.stopPropagation();
+                            isResizingSE = true;
+                            const coords = getCoords(e);
+                            startX = coords.x; startY = coords.y;
+                            startWidth = box.offsetWidth; startHeight = box.offsetHeight;
+                            aspectRatio = startWidth / startHeight;
+                            attachEvents();
+                        }}
+
+                        function onMove(e) {{
+                            if (!isDragging && !isResizingNW && !isResizingSE) return;
+                            const coords = getCoords(e);
+                            const sheetW = sheet.clientWidth || 595;
+                            const sheetH = sheet.clientHeight || 841;
+                            const keepAspect = window["keepAspect_" + uid] !== false;
+
+                            if (isDragging) {{
+                                let newLeft = Math.max(0, Math.min(coords.x - startX, sheetW - box.offsetWidth));
+                                let newTop = Math.max(0, Math.min(coords.y - startY, sheetH - box.offsetHeight));
+                                box.style.left = newLeft + "px";
+                                box.style.top = newTop + "px";
+                            }} else if (isResizingSE) {{
+                                let dx = coords.x - startX;
+                                let dy = coords.y - startY;
+
+                                let newW = startWidth + dx;
+                                let newH = startHeight + dy;
+
+                                if (keepAspect) {{
+                                    if (Math.abs(dx) > Math.abs(dy)) {{
+                                        newH = newW / aspectRatio;
+                                    }} else {{
+                                        newW = newH * aspectRatio;
+                                    }}
+                                }}
+
+                                let maxW = sheetW - box.offsetLeft;
+                                let maxH = sheetH - box.offsetTop;
+
+                                if (newW >= 40 && newH >= 40 && newW <= maxW && newH <= maxH) {{
+                                    box.style.width = newW + "px";
+                                    box.style.height = newH + "px";
+                                }}
+                            }} else if (isResizingNW) {{
+                                let dx = coords.x - startX;
+                                let dy = coords.y - startY;
+
+                                let newW = startWidth - dx;
+                                let newH = startHeight - dy;
+
+                                if (keepAspect) {{
+                                    if (Math.abs(dx) > Math.abs(dy)) {{
+                                        newH = newW / aspectRatio;
+                                    }} else {{
+                                        newW = newH * aspectRatio;
+                                    }}
+                                }}
+
+                                let newL = startLeft + (startWidth - newW);
+                                let newT = startTop + (startHeight - newH);
+
+                                if (newW >= 40 && newH >= 40 && newL >= 0 && newT >= 0) {{
+                                    box.style.width = newW + "px";
+                                    box.style.height = newH + "px";
+                                    box.style.left = newL + "px";
+                                    box.style.top = newT + "px";
+                                }}
+                            }}
+                        }}
+
+                        function stopAction() {{
+                            isDragging = isResizingNW = isResizingSE = false;
+                            detachEvents();
+                        }}
+
+                        function attachEvents() {{
+                            window.addEventListener("mousemove", onMove);
+                            window.addEventListener("touchmove", onMove, {{ passive: false }});
+                            window.addEventListener("mouseup", stopAction);
+                            window.addEventListener("touchend", stopAction);
+                        }}
+
+                        function detachEvents() {{
+                            window.removeEventListener("mousemove", onMove);
+                            window.removeEventListener("touchmove", onMove);
+                            window.removeEventListener("mouseup", stopAction);
+                            window.removeEventListener("touchend", stopAction);
+                        }}
+
+                        box.addEventListener("mousedown", startDrag);
+                        box.addEventListener("touchstart", startDrag, {{ passive: false }});
+                        resizerNW.addEventListener("mousedown", startResizeNW);
+                        resizerNW.addEventListener("touchstart", startResizeNW, {{ passive: false }});
+                        resizerSE.addEventListener("mousedown", startResizeSE);
+                        resizerSE.addEventListener("touchstart", startResizeSE, {{ passive: false }});
                     }}
 
-                    function stopAction() {{
-                        isDragging = isResizingNW = isResizingSE = false;
-                        detachEvents();
-                    }}
-
-                    function attachEvents() {{
-                        window.addEventListener("mousemove", onMove);
-                        window.addEventListener("touchmove", onMove, {{ passive: false }});
-                        window.addEventListener("mouseup", stopAction);
-                        window.addEventListener("touchend", stopAction);
-                    }}
-
-                    function detachEvents() {{
-                        window.removeEventListener("mousemove", onMove);
-                        window.removeEventListener("touchmove", onMove);
-                        window.removeEventListener("mouseup", stopAction);
-                        window.removeEventListener("touchend", stopAction);
-                    }}
-
-                    box.addEventListener("mousedown", startDrag);
-                    box.addEventListener("touchstart", startDrag, {{ passive: false }});
-                    resizerNW.addEventListener("mousedown", startResizeNW);
-                    resizerNW.addEventListener("touchstart", startResizeNW, {{ passive: false }});
-                    resizerSE.addEventListener("mousedown", startResizeSE);
-                    resizerSE.addEventListener("touchstart", startResizeSE, {{ passive: false }});
-                }}
-
-                init();
-            }})();
-            ''')
+                    init();
+                }})();
+                ''')
     
     def print_selected_files(self, container):
         if not self.selected_files:
