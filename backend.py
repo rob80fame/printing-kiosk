@@ -24,6 +24,8 @@ import xml.etree.ElementTree as ET
 import shutil
 import ctypes
 from nicegui import ui
+import sys
+from git import Repo, GitCommandError
 
 
 app = Flask(__name__)
@@ -48,6 +50,56 @@ DB_CONFIG = {
     "host": "localhost",
     "port": "5432"
 }
+
+def check_for_git_updates():
+    if not os.path.exists('.git'):
+        print("Cartella .git non trovata. Controllo aggiornamenti saltato.")
+        return
+
+    print("Controllo aggiornamenti via GitPython...")
+    try:
+        repo = Repo('.')
+        
+        # Verifica che il repository non sia in uno stato 'dirty' o staccato
+        if repo.is_dirty(untracked_files=False):
+            print("Attenzione: Ci sono modifiche locali non salvate. Pulled disabilitato.")
+            return
+
+        origin = repo.remotes.origin
+        
+        # Aggiorna le informazioni sui branch remoti
+        origin.fetch()
+
+        # Ottiene il branch locale attivo (es. 'main') e il relativo branch remoto di tracciamento
+        current_branch = repo.active_branch
+        tracking_branch = current_branch.tracking_branch()
+
+        if tracking_branch is None:
+            print(f"Nessun branch remoto associato a {current_branch.name}.")
+            return
+
+        # Confronta gli hash dei commit
+        local_commit = current_branch.commit
+        remote_commit = tracking_branch.commit
+
+        if local_commit != remote_commit:
+            print(f"Nuovo aggiornamento trovato! ({local_commit.hexsha[:7]} -> {remote_commit.hexsha[:7]})")
+            print("Download in corso...")
+            
+            # Esegue il pull
+            origin.pull()
+            
+            print("Aggiornamento completato con successo. Riavvio dell'applicazione...")
+            
+            # Riavvia il processo Python per caricare il nuovo codice scaricato
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        else:
+            print("Il software è già aggiornato all'ultima versione.")
+
+    except GitCommandError as e:
+        print(f"Errore durante la comunicazione con Git (es. manca connessione): {e}")
+    except Exception as e:
+        print(f"Errore imprevisto durante il controllo aggiornamenti: {e}")
 
 os.makedirs(TMP_DIR, exist_ok=True)
 
@@ -616,6 +668,9 @@ def admin_app():
     ui.run(port=7776, host='0.0.0.0', reload=False, show=False)
 
 if __name__ == '__main__':
+    
+    check_for_git_updates()
+
     init_db()
 
     # Avvia il monitoraggio USB in background

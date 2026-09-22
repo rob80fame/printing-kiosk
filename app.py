@@ -34,6 +34,8 @@ DB_CONFIG = {
 PRICES = file['prices']
 FOLDERS_TO_CLEAN = ["IMAGES", "DOCUMENTS", "tmp"]
 
+TimeoutTime = file['timeout']
+
 isdev = True
 
 if isdev == False:
@@ -152,12 +154,12 @@ class PrintingKiosk:
         results = cursor.fetchall()
 
         if len(results) == 0:
-            #ui.notify("Codice errato", type='warning')
+            ui.notify("Codice errato", type='warning')
             cursor.close()
             conn.close()
             return
         
-        #ui.notify("Trovato i tuoi file", type='positive')
+        ui.notify("Trovato i tuoi file", type='positive')
         cursor.close()
         conn.close()
 
@@ -181,7 +183,7 @@ class PrintingKiosk:
             self.current_code = code
             results = await asyncio.to_thread(self._search_worker, code)
             if not results:
-                #ui.notify("Codice errato", type='negative')
+                ui.notify("Codice errato", type='negative')
                 return
             container.clear()
             with container:
@@ -194,10 +196,9 @@ class PrintingKiosk:
         with container.classes('w-full h-screen overflow-hidden'):
                     with ui.dialog() as policy, ui.card().classes('p-6 min-w-[300px]'):
                         ui.label("Informativa sulla Privacy e Trattamento dei Dati Personali").classes('text-xl font-bold mb-4')
-                        with open('policy.txt', 'r', encoding='utf-8') as f:
-                            plcy = f.read()
+                        
+                        plcy = file['policy']
 
-                        # Qui inserisci i widget o le funzioni della sovrafinestra
                         ui.label(f"{plcy}")
                         
                         with ui.row().classes('w-full justify-end mt-4'):
@@ -225,19 +226,16 @@ class PrintingKiosk:
             
             with ui.column().classes('w-full h-full justify-between items-center text-center py-6 px-4'):
                 
-                # Titoli (terza riga ora identica alla seconda con text-xl)
                 with ui.column().classes('items-center gap-2 pt-4'):
                     ui.label("Stampa i tuoi documenti").classes('text-4xl font-bold mb-1')
                     ui.label("Inserisci il codice mandato su Whatsapp o via email").classes('text-xl')
                     ui.label(f"Se hai inserito la chiavetta inserisci il codice é {usb_code}").classes('text-xl')
                 
-                # Input e pulsante Cerca al centro
                 with ui.column().classes('items-center gap-4'):
                     code_input = ui.input(label="Codice").classes('w-64 text-2xl').props('type=number inputmode=numeric').on('blur', lambda: code_input.run_method('focus'))
                     code_input.on('keydown.enter', lambda: self.search_by_code(code_input.value, container))
                     ui.button("Cerca", on_click=lambda: self.search_by_code(code_input.value, container)).classes('px-20 py-2')
 
-                # Informativa e Privacy in basso a destra
                 with ui.row().classes('w-full justify-end pb-2'):
                     ui.button("Informativa", on_click=policy.open).props('flat dense').classes('text-gray-400 text-xs')
 
@@ -247,7 +245,6 @@ class PrintingKiosk:
         
         container.clear()
         with container:
-            # Nota: container viene passato qui per aggiungere elementi
             ui.button("← Indietro", on_click=lambda: self.render_login(container)).classes('self-start')
             ui.label("File trovati").classes('text-2xl font-bold my-5')
             
@@ -255,9 +252,7 @@ class PrintingKiosk:
                 for f in file_list:
                     preview_data = self.get_pdf_preview_data(f)
                     
-                    # Creiamo la card
                     with ui.card().classes('w-64 h-64 border p-2 cursor-pointer bg-white transition-all') as card:
-                        # Al click, eseguiamo il toggle
                         card.on('click', lambda f=f, c=card: self.toggle_selection(f, c))
                         
                         if preview_data:
@@ -273,24 +268,26 @@ class PrintingKiosk:
             ui.timer(3.0, self.update_cost)
 
         self.current_file_list = file_list
+
+        start_inactivity_timer(
+        container, 
+        timeout_seconds=TimeoutTime, 
+        on_timeout=lambda: self.render_login(container)
+        )
         
 
 
     def toggle_selection(self, file_path, card):
-        # Definiamo le classi base
         base_classes = 'w-64 h-64 border p-2 cursor-pointer transition-all'
         
         if file_path in self.selected_files:
             self.selected_files.remove(file_path)
-            # Ritorna allo stato normale (bianco)
             card.classes(replace=f'{base_classes} bg-white')
         else:
             self.selected_files.add(file_path)
-            # Cambia stato in "selezionato" (azzurro)
             card.classes(replace=f'{base_classes} bg-blue-300')
 
     def compute_cost(self):
-        """Calcola il costo basandosi sulla configurazione corrente."""
         if not os.path.exists(os.path.join(os.getcwd(), 'DOCUMENTS')):
             return 0.0
             
@@ -309,12 +306,10 @@ class PrintingKiosk:
         layout = self.config['layout']
 
 
-        # 2. Recupero prezzi
         pricing = PRICES["color"] if is_color else PRICES["bw"]
         page_price = pricing.get(size, pricing["A4"])
         duplex_price = pricing.get("duplex_price", {}).get(size, page_price)
 
-        # 3. Calcolo fogli in base al layout
         if layout == "Metà per foglio":
             sheets_per_copy = pages_to_print * 2
             base_cost = page_price * sheets_per_copy
@@ -322,7 +317,6 @@ class PrintingKiosk:
             sheets_per_copy = pages_to_print * 4
             base_cost = page_price * sheets_per_copy
         else:
-            # Layout standard (Uno, Due, Quattro per foglio normali)
             pages_per_sheet = 2 if layout == "Due per foglio" else 4 if layout == "Quattro per foglio" else 1
             if is_duplex:
                 pages_per_sheet *= 2
@@ -341,19 +335,16 @@ class PrintingKiosk:
         return round(base_cost + 1e-9, 2)
 
     def update_cost(self):
-        """Aggiorna il costo visualizzato nell'interfaccia."""
         self.totalprice = readtmpprice(self.current_code)  
         if self.price_label:
             self.price_label.set_text(self.totalprice)
 
     def prepare_print_pdf(self, file_path):
-        """Prepara il file PDF applicando layout e selezioni."""
         selected_pages = self.parse_page_selection(self.config['pages'], len(fitz.open(file_path)))
         
         input_doc = fitz.open(file_path)
         output_doc = fitz.open()
         
-        # Logica di layout
         layout_val = self.config['layout']
         if layout_val in ("Due per foglio", "Quattro per foglio"):
             pages_per_sheet = 2 if layout_val == "Due per foglio" else 4
@@ -369,11 +360,11 @@ class PrintingKiosk:
                     cols, rows = 2, 2
             else:  # A4
                 if layout_val == "Due per foglio":
-                    target_w, target_h = 841.89, 595.27   # A4 Landscape (Ruotato in orizzontale)
-                    cols, rows = 2, 1                     # <--- 2 colonne, 1 riga: affiancate in orizzontale!
+                    target_w, target_h = 841.89, 595.27   # A4 Landscape
+                    cols, rows = 2, 1
                 else:
                     target_w, target_h = 595.27, 841.89   # A4 Portrait
-                    cols, rows = 2, 2                     # <--- Griglia 2x2 per 4 pagine
+                    cols, rows = 2, 2
                 
             i = 0
             while i < len(selected_pages):
@@ -438,6 +429,7 @@ class PrintingKiosk:
         input_doc.close()
         output_doc.close()
         return tmp_path
+    
     def merge_docs(self, file_list):
         tmp_dir = os.path.join(os.getcwd(), "tmp")
         if not os.path.exists(tmp_dir):
@@ -448,13 +440,15 @@ class PrintingKiosk:
         
         doc_unito = fitz.open()
 
+        haspdf = False
+        multi_image = []
+
         for f in sorted(list(file_list)):
             if not os.path.exists(f):
                 continue
                 
             ext = os.path.splitext(f)[1].lower()
-            haspdf = False
-            
+                        
             try:
                 if ext == ".pdf":
                     with fitz.open(f) as doc:
@@ -462,17 +456,15 @@ class PrintingKiosk:
                     haspdf = True
                 
                 elif ext in [".jpg", ".jpeg", ".png", ".bmp"]:
-                    if haspdf == True:
-                        img_doc = fitz.open()
-                        img = fitz.open(f)
-                        rect = img[0].rect
-                        pdfbytes = img.convert_to_pdf()
-                        img_pdf = fitz.open("pdf", pdfbytes)
-                        doc_unito.insert_pdf(img_pdf)
-                        img.close()
-                        img_doc.close()
-                    else:
-                        return f, False
+                    img_doc = fitz.open()
+                    img = fitz.open(f)
+                    rect = img[0].rect
+                    pdfbytes = img.convert_to_pdf()
+                    img_pdf = fitz.open("pdf", pdfbytes)
+                    doc_unito.insert_pdf(img_pdf)
+                    img.close()
+                    img_doc.close()
+                    multi_image.append(f)
                 
                 else:
                     print(f"Formato non supportato: {ext}")
@@ -482,17 +474,20 @@ class PrintingKiosk:
 
         doc_unito.save(output_path)
         doc_unito.close()
-        return output_path, True
+
+        if haspdf == True:
+            return output_path, True
+        else:
+            return multi_image[0], False
+
 
     def render_img_resizer(self, container, img_file):
         container.clear()
-        # Contenitore a schermo intero senza barre di scorrimento
         container.classes(remove='overflow-y-auto overflow-hidden flex-col', 
                         add='relative w-full h-screen overflow-hidden flex items-center justify-center bg-white')
         
         uid = uuid.uuid4().hex[:6]
         
-        # 1. Calcola aspect ratio iniziale
         init_w, init_h = 250, 250
         if os.path.exists(img_file):
             try:
@@ -502,7 +497,6 @@ class PrintingKiosk:
             except Exception:
                 pass
 
-        # 2. Configura rotta statica
         if os.path.exists(img_file):
             img_dir = os.path.dirname(os.path.abspath(img_file))
             img_name = os.path.basename(img_file)
@@ -512,14 +506,11 @@ class PrintingKiosk:
         else:
             img_url = img_file
         
-        # Callbacks
         def on_indietro_click():
             self.render_file_grid(self.current_file_list, container)
 
-        # 1. Registra l'ascoltatore dell'evento sincrono
         async def on_prosegui_click():
             try:
-                # 1. Recupera le coordinate usando container.client
                 box_data = await container.client.run_javascript(f'''
                     (function() {{
                         const box = document.getElementById("drag-box-{uid}");
@@ -536,7 +527,6 @@ class PrintingKiosk:
                     ui.notify("Impossibile recuperare le coordinate dell'immagine.", color="negative")
                     return
 
-                # 2. Genera il file PDF con PyMuPDF
                 x, y = float(box_data['left']), float(box_data['top'])
                 w, h = float(box_data['width']), float(box_data['height'])
 
@@ -550,15 +540,13 @@ class PrintingKiosk:
                 doc.save(tmp_file, garbage=4, deflate=True)
                 doc.close()
 
-                # 3. Transizione alla nuova schermata
                 self.render_print_config(container, tmp_file, False)
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                ui.notify(f"Errore generazione PDF: {str(e)}", color="negative")# 4. DOM: Pulsanti in alto a sinistra e Foglio al centro
+                ui.notify(f"Errore generazione PDF: {str(e)}", color="negative")
         with container:
-            # Usare stili circoscritti solo agli elementi del resizer
             ui.add_head_html(f'''
             <style>
                 .a4-container-{uid} {{
@@ -606,7 +594,6 @@ class PrintingKiosk:
                 .resizer-se-{uid} {{ right: -11px; bottom: -11px; cursor: nwse-resize; }}
             </style>
             ''')
-                    # Colonna pulsanti ancorata in alto a sinistra
             
             with ui.column().classes('absolute top-6 left-6 z-50 gap-3'):
                 ui.button('INDIETRO', on_click=on_indietro_click).props('outline').classes(
@@ -621,14 +608,12 @@ class PrintingKiosk:
                     lambda e: ui.run_javascript(f'window.keepAspect_{uid} = {str(e.value).lower()};')
                 )
                 
-            # Foglio A4 centrato
             with ui.element('div').classes(f'a4-container-{uid}').props(f'id="a4-sheet-{uid}"'):
                 with ui.element('div').classes(f'draggable-box-{uid}').props(f'id="drag-box-{uid}"'):
                     ui.element('img').props(f'src="{img_url}" alt="Immagine"')
                     ui.element('div').classes(f'resizer-{uid} resizer-nw-{uid}').props(f'id="resizer-nw-{uid}"')
                     ui.element('div').classes(f'resizer-{uid} resizer-se-{uid}').props(f'id="resizer-se-{uid}"')
 
-        # 5. JavaScript per Drag e Resize
             ui.run_javascript(f'''
                 (function() {{
                     const uid = "{uid}";
@@ -798,24 +783,18 @@ class PrintingKiosk:
             
     def get_pdf_preview_data(self, file_path):
         try:
-            # Apri il documento
             doc = fitz.open(file_path)
-            # Ottieni la prima pagina
             page = doc.load_page(0)
-            # Genera il pixmap con la scala richiesta
             pix = page.get_pixmap(matrix=fitz.Matrix(0.3, 0.3))
             
-            # Converti il pixmap in bytes PNG (più veloce di PIL)
             png_bytes = pix.tobytes("png")
             
-            # Codifica in base64
             base64_string = base64.b64encode(png_bytes).decode('utf-8')
             
-            # Ritorna il Data URI
             return f"data:image/png;base64,{base64_string}"
         except Exception as e:
             print(f"Errore preview {file_path}: {e}")
-            return None # Oppure un'immagine di placeholder
+            return None
 
     def get_printers(self):
         """Recupera la lista delle stampanti di sistema per Windows e Linux."""
@@ -836,13 +815,10 @@ class PrintingKiosk:
         # --- LOGICA LINUX ---
         elif system == "Linux":
             try:
-                # Esegue 'lpstat -p' per ottenere la lista delle stampanti configurate
-                # L'output tipico è: "printer NomeStampante is idle"
                 output = subprocess.check_output(['lpstat', '-p'], text=True)
                 printers = []
                 for line in output.splitlines():
                     if line.startswith("printer"):
-                        # Estrae il nome della stampante (la seconda parola)
                         parts = line.split()
                         if len(parts) > 1:
                             printers.append(parts[1])
@@ -859,7 +835,6 @@ class PrintingKiosk:
         self.current_file_path = file_path
 
         control_classes = 'w-full text-xl'
-            # Contenitore principale a schermo intero
         with container.classes('w-full h-screen overflow-hidden'):
             
             with ui.dialog() as funct, ui.card().classes('p-6 min-w-[300px]'):
@@ -908,23 +883,22 @@ class PrintingKiosk:
                         ui.separator().classes('my-4')
                         ui.button("STAMPA", on_click=lambda: self.send_to_printer(file_path, container)).classes('w-full py-6 text-xl font-bold bg-green-600')
                         
-                        # Salvato in self per update_ui_elements
                         self.cost_label = ui.label("€ 0.00").classes('text-4xl font-bold text-green-700 mt-2')
 
                 # --- LATO DESTRO (Anteprima) ---
                 with splitter.after:
-                    # Contenitore principale a blocco fisso
                     with ui.column().classes('w-full h-full bg-gray-100 p-6 overflow-hidden'):
-                        # Titolo fisso in alto (non scorre via)
                         ui.label("Anteprima").classes('text-2xl font-bold mb-4 shrink-0')
                         
-                        # Area di scorrimento dedicata al touch per la preview
                         with ui.scroll_area().classes('w-full h-full'):
-                            # Salvato in self per update_ui_elements e popolamento dinamico
                             self.preview_area = ui.column().classes('w-full items-center')
 
-            # Trigger iniziale
             ui.timer(0.1, self.update_ui_elements, once=True)
+        start_inactivity_timer(
+                container, 
+                timeout_seconds=TimeoutTime, 
+                on_timeout=lambda: self.render_login(container)
+                )
 
     async def update_ui_elements(self, *args):
         if self.is_updating:
@@ -944,23 +918,18 @@ class PrintingKiosk:
             layout = str(self.config.get('layout', '')).lower()
 
             if layout in ["metà per foglio", "un quarto per foglio"]:
-                #self.config['duplex'] = "Solo Fronte"
                 self.duplex_select.value = "Solo Fronte"
 
-            # 1. Aggiorna il costo
             cost = self.compute_cost()
             if self.cost_label:
                 self.cost_label.set_text(f"€ {cost:.2f}")
             
-            # 2. Pulisci l'area di anteprima PRIMA di aggiungere lo spinner
             if self.preview_area:
                 self.preview_area.clear()
                 
                 with self.preview_area:
-                    # Mostra lo spinner temporaneamente
                     spinner = ui.spinner(size='lg')
                     
-                    # Genera le immagini
                     images = await asyncio.to_thread(
                         self.generate_preview_images, 
                         self.current_file_path, 
@@ -969,7 +938,6 @@ class PrintingKiosk:
                         self.config['pages']
                     )
                     
-                    # Rimuovi lo spinner esplicitamente prima di mostrare le immagini
                     spinner.delete() 
                     
                     for img_b64 in images:
@@ -981,14 +949,9 @@ class PrintingKiosk:
 
 
     def render_configuration_ui(self, container, on_back_callback):
-        """
-        container: Il contenitore ui.column() in cui disegnare
-        on_back_callback: Funzione da chiamare per tornare indietro
-        """
         container.classes(remove='overflow-hidden', add='overflow-y-auto h-full')
         container.clear()
         
-        # Carica la configurazione attuale se esiste
         config_path = 'config.json'
         config_data = {}
         if os.path.exists(config_path):
@@ -1002,14 +965,12 @@ class PrintingKiosk:
             ui.button("← Indietro", on_click=on_back_callback).classes('self-start')
             ui.label("Configurazione Parametri").classes('text-2xl font-bold mb-5')
 
-            # Selezione Stampante
             printer_select = ui.select(
                 options=self.get_printers(),
                 label="Seleziona Stampante",
                 value=config_data.get('Printer', '')
             ).classes('w-full max-w-md')
 
-            # Campi configurazione
             # Struttura: key -> (label, password_field)
             field_definitions = {
                 "pass": ("DbPassword", True),
@@ -1021,7 +982,8 @@ class PrintingKiosk:
                 "EMAIL_PASS" : ("Email App password", True),
                 "sudo": ("ConfigCode", False),
                 "shutp": ("ShutCode", False),
-                "usb_code" : ("UsbCode", False)
+                "usb_code" : ("UsbCode", False),
+                "timeout" : ("Timeout Back", False)
             }
             
             inputs = {}
@@ -1065,8 +1027,7 @@ class PrintingKiosk:
             conn = psycopg2.connect(**DB_CONFIG)
             cur = conn.cursor()
             cur.execute("TRUNCATE TABLE orders RESTART IDENTITY;")
-            initial_files = json.dumps([]) # Lista vuota in attesa dei file della chiavetta
-    
+            initial_files = json.dumps([]) 
             cur.execute("""
                 INSERT INTO orders (sender, code, file_paths) 
                 VALUES (%s, %s, %s)
@@ -1102,7 +1063,6 @@ class PrintingKiosk:
             print(f"Errore durante la pulizia del file: {e}")
 
     async def send_to_printer(self, file_path, container):
-        # Convertiamo le copie in stringa per evitare problemi con i parametri del processo
         copies = str(self.config['copies'])
         
         if not os.path.exists(r"SumatraPDF.exe"):
@@ -1111,7 +1071,6 @@ class PrintingKiosk:
             media_opt = self.config['format']
             cmd = ["lp", "-d", PRINTER_NAME, "-n", copies, "-o", f"color={color_opt}", "-o", f"sides={duplex_opt}", "-o", f"media={media_opt}", "-o", "fit-to-page", file_path]
             try:
-                # Esecuzione asincrona per non bloccare la UI ed evitare il popup "Connection lost"
                 await run.io_bound(subprocess.run, cmd, check=True, capture_output=True, text=True)
                 registertmpprice(self.current_code, self.cost_label.text)
                 container.clear()
@@ -1137,7 +1096,6 @@ class PrintingKiosk:
                 return False
         
     def parse_page_selection(self, pages_str, total_pages):
-        """Converte una stringa come '1-3, 5' in una lista di indici [0, 1, 2, 4]."""
         if not pages_str or pages_str.lower() in {"tutte", "all"}:
             return list(range(total_pages))
         
@@ -1155,7 +1113,6 @@ class PrintingKiosk:
             return list(range(total_pages))
 
     def generate_preview_images(self, file_path, mode, layout, pages_str):
-        """Genera anteprime (Base64) basate su impostazioni di stampa, perfettamente allineate a prepare_print_pdf."""
         doc = fitz.open(file_path)
         images_base64 = []
         
@@ -1165,10 +1122,9 @@ class PrintingKiosk:
             is_bw = (mode == "Bianco e Nero")
             format_val = self.config.get('format', 'A4')
 
-            # Funzione helper per ottenere immagine pagina intera
             def get_img(page_idx):
                 page = doc[page_idx]
-                matrix = fitz.Matrix(2, 2)  # Matrice ottimizzata per anteprime web
+                matrix = fitz.Matrix(2, 2)
                 if is_bw:
                     pix = page.get_pixmap(matrix=matrix, colorspace=fitz.csGRAY)
                     img = Image.frombytes("L", (pix.width, pix.height), pix.samples).convert("RGB")
@@ -1177,7 +1133,6 @@ class PrintingKiosk:
                     img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 return img
 
-            # Funzione helper per il ritaglio (tile) di una porzione
             def get_tile_img(page_idx, clip_rect):
                 page = doc[page_idx]
                 matrix = fitz.Matrix(2, 2)
@@ -1189,7 +1144,6 @@ class PrintingKiosk:
                     img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
                 return img
 
-            # Logica Layout
             if layout == "Uno per foglio":
                 for idx in page_indices:
                     img = get_img(idx)
@@ -1208,9 +1162,9 @@ class PrintingKiosk:
                         cols, rows = 2, 2
                 else:  # A4
                     if layout == "Due per foglio":
-                        cols, rows = 2, 1  # 2 colonne, 1 riga affiancate in orizzontale <--- CORRETTO
+                        cols, rows = 2, 1
                     else:
-                        cols, rows = 2, 2  # Griglia 2x2
+                        cols, rows = 2, 2
                             
                 for i in range(0, len(page_indices), pages_per_sheet):
                     group_indexes = page_indices[i:i+pages_per_sheet]
@@ -1307,7 +1261,6 @@ def registertmpprice(user_id, amount_str):
     else:
         data = {}
 
-    # 3. Calcola il nuovo totale
     if user_id in data:
         current_price_str = data[user_id].replace('€', '').replace(',', '.').strip()
         current_price = float(current_price_str)
@@ -1340,7 +1293,6 @@ def scale_pdf_text(input_pdf: str, percentage: float) -> str:
     
     success = False
     
-    # 1. Tentativo con Microsoft Word (tramite win32com su Windows)
     if platform.system() == "Windows":
         try:
             import win32com.client
@@ -1376,7 +1328,6 @@ def scale_pdf_text(input_pdf: str, percentage: float) -> str:
         except Exception:
             success = False
 
-    # 2. Fallback su LibreOffice se Word non è disponibile o fallisce
     if not success:
         try:
             import docx
@@ -1387,7 +1338,6 @@ def scale_pdf_text(input_pdf: str, percentage: float) -> str:
                 if os.path.exists(potential_path):
                     soffice_path = f'"{potential_path}"'
             
-            # Converte il PDF in DOCX tramite LibreOffice headless
             subprocess.run(
                 f'{soffice_path} --headless --convert-to docx "{abs_input}" --outdir "{output_dir}"', 
                 shell=True, check=True
@@ -1396,7 +1346,6 @@ def scale_pdf_text(input_pdf: str, percentage: float) -> str:
             docx_path = os.path.join(output_dir, f"{base_name}.docx")
             
             if os.path.exists(docx_path):
-                # Modifica la dimensione dei caratteri nel file DOCX usando python-docx
                 doc_x = docx.Document(docx_path)
                 for p in doc_x.paragraphs:
                     for run in p.runs:
@@ -1412,7 +1361,6 @@ def scale_pdf_text(input_pdf: str, percentage: float) -> str:
 
                 doc_x.save(docx_path)
                 
-                # Riconverte il DOCX modificato in PDF tramite LibreOffice
                 subprocess.run(
                     f'{soffice_path} --headless --convert-to pdf "{docx_path}" --outdir "{output_dir}"', 
                     shell=True, check=True
@@ -1431,13 +1379,66 @@ def scale_pdf_text(input_pdf: str, percentage: float) -> str:
         except Exception as e:
             raise RuntimeError(f"Impossibile elaborare il PDF né con Word né con LibreOffice: {e}")
 
-    # Sostituisce il file originale con quello definitivo scalato
     if success and os.path.exists(temp_output):
         if os.path.exists(abs_input):
             os.remove(abs_input)
         os.rename(temp_output, abs_input)
         
     return abs_input
+
+def start_inactivity_timer(container, timeout_seconds=90, on_timeout=None):
+    if not callable(on_timeout):
+        return
+
+    uid = uuid.uuid4().hex[:6]
+    btn_id = f"inactivity-trigger-{uid}"
+
+    with container:
+        hidden_btn = ui.button().props(f'id={btn_id}').classes('hidden')
+
+        def handle_timeout():
+            container.client.run_javascript('if(window._inactivityCleanup) window._inactivityCleanup();')
+            on_timeout()
+
+        hidden_btn.on_click(handle_timeout)
+
+    container.client.run_javascript(f'''
+        (function() {{
+            const timeoutMs = {timeout_seconds * 1000};
+            let timer;
+
+            // Rimuove eventuali timer attivi da schermate precedenti
+            if (window._inactivityCleanup) {{
+                window._inactivityCleanup();
+            }}
+
+            function resetTimer() {{
+                clearTimeout(timer);
+                timer = setTimeout(() => {{
+                    const btn = document.getElementById("{btn_id}");
+                    // Esegue il click solo se l'elemento è ancora presente nel DOM
+                    if (btn) {{
+                        btn.click();
+                    }}
+                }}, timeoutMs);
+            }}
+
+            const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+
+            function onActivity() {{
+                resetTimer();
+            }}
+
+            events.forEach(evt => window.addEventListener(evt, onActivity, true));
+
+            window._inactivityCleanup = function() {{
+                clearTimeout(timer);
+                events.forEach(evt => window.removeEventListener(evt, onActivity, true));
+            }};
+
+            resetTimer();
+        }})();
+    ''')
 
 app_instance = PrintingKiosk()
 

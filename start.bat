@@ -151,7 +151,7 @@ if exist "%SCRIPT_DIR%%FLAG_FILE%" (
     python -m venv "%SCRIPT_DIR%.venv"
     call "%SCRIPT_DIR%.venv\Scripts\activate.bat"
     python -m pip install --upgrade pip
-    python -m pip install nicegui psycopg2-binary pymupdf pillow flask requests cryptography || true
+    python -m pip install GitPython nicegui psycopg2-binary pymupdf pillow flask requests cryptography || true
 
     echo. > "%SCRIPT_DIR%%FLAG_FILE%"
     echo Installazione completata con successo.

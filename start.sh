@@ -181,7 +181,7 @@ else
     # shellcheck disable=SC1090
     . "$SCRIPT_DIR/.venv/bin/activate"
     python -m pip install --upgrade pip
-    python -m pip install nicegui psycopg2-binary pymupdf pillow flask requests cryptography || true
+    python -m pip install GitPython nicegui psycopg2-binary pymupdf pillow flask requests cryptography || true
 
     touch "$SCRIPT_DIR/$FLAG_FILE"
     echo "Installazione completata con successo."
