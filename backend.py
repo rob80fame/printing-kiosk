@@ -60,17 +60,14 @@ def check_for_git_updates():
     try:
         repo = Repo('.')
         
-        # Verifica che il repository non sia in uno stato 'dirty' o staccato
         if repo.is_dirty(untracked_files=False):
             print("Attenzione: Ci sono modifiche locali non salvate. Pulled disabilitato.")
             return
 
         origin = repo.remotes.origin
         
-        # Aggiorna le informazioni sui branch remoti
         origin.fetch()
 
-        # Ottiene il branch locale attivo (es. 'main') e il relativo branch remoto di tracciamento
         current_branch = repo.active_branch
         tracking_branch = current_branch.tracking_branch()
 
@@ -78,7 +75,6 @@ def check_for_git_updates():
             print(f"Nessun branch remoto associato a {current_branch.name}.")
             return
 
-        # Confronta gli hash dei commit
         local_commit = current_branch.commit
         remote_commit = tracking_branch.commit
 
@@ -104,10 +100,8 @@ def check_for_git_updates():
 os.makedirs(TMP_DIR, exist_ok=True)
 
 def get_servers_from_email(email_address):
-    """Ricava i server IMAP e SMTP interrogando il database di autoconfigurazione di Thunderbird."""
     domain = email_address.split("@")[-1].lower()
     
-    # Mappa rapida per i provider più comuni (evita la richiesta HTTP se non necessaria)
     known_providers = {
         "gmail.com": {"imap": "imap.gmail.com", "smtp": "smtp.gmail.com", "port": 587},
         "outlook.com": {"imap": "outlook.office365.com", "smtp": "outlook.office365.com", "port": 587},
@@ -138,7 +132,6 @@ def get_servers_from_email(email_address):
     except Exception:
         pass
         
-    # Fallback standard basato sul nome del dominio se Thunderbird fallisce
     return {
         "imap": f"imap.{domain}",
         "smtp": f"smtp.{domain}",
@@ -377,7 +370,6 @@ def process_incoming_emails():
                         if filename and filename.lower().endswith(SUPPORTED_EMAIL_EXTENSIONS):
                             ext = filename.lower()
                             
-                            # Struttura condizionale corretta per evitare sovrascrizioni di target_dir
                             if ext.endswith(('.jpg', '.jpeg', '.png', '.webp')):
                                 target_dir = Img_path
                                 is_doc = False
@@ -391,7 +383,6 @@ def process_incoming_emails():
                             Path(target_dir).mkdir(parents=True, exist_ok=True)
                             filepath = os.path.join(target_dir, filename)
 
-                            # 1. Salva prima l'allegato grezzo su disco
                             payload = part.get_payload(decode=True)
                             if isinstance(payload, bytes):
                                 with open(filepath, "wb") as f:
@@ -400,7 +391,6 @@ def process_incoming_emails():
                                 with open(filepath, "w", encoding="utf-8") as f:
                                     f.write(payload)
 
-                            # 2. Se è un file Word, converte il file appena salvato in PDF
                             if is_doc:
                                 base_name = os.path.splitext(filename)[0]
                                 pdf_path = os.path.join(Doc_path, f"{base_name}.pdf")
@@ -435,17 +425,13 @@ def email_monitor_loop(interval_seconds=30):
     while True:
         process_incoming_emails()
         time.sleep(interval_seconds)
-import json
-import psycopg2
 
 def clear_usb_files_from_db(usb_code):
-    """Sovrascrive la colonna file_paths con un array vuoto solo per la specifica entry associata al codice USB."""
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
         
         empty_files = json.dumps([])
-        # Aggiorna solo la riga corrispondente allo specifico usb_code
         cur.execute("UPDATE orders SET file_paths = %s WHERE code = %s;", (empty_files, usb_code))
         
         conn.commit()
@@ -459,7 +445,6 @@ def usb_monitor_loop():
     print("--- [USB] Monitoraggio chiavette avviato ---")
     seen_drives = set()
     
-    # Rileva le unità rimovibili già presenti all'avvio per ignorarle
     try:
         bitmask = ctypes.windll.kernel32.GetLogicalDrives()
         for letter in range(65, 91):
@@ -480,7 +465,6 @@ def usb_monitor_loop():
                     if ctypes.windll.kernel32.GetDriveTypeW(drive) == 2:
                         current_drives.add(drive)
             
-            # 1. Rileva inserimento di nuove chiavette
             new_drives = current_drives - seen_drives
             for drive in new_drives:
                 print(f"\n--- [USB] Nuova chiavetta rilevata: {drive} ---")
@@ -509,7 +493,6 @@ def usb_monitor_loop():
                             except Exception as file_err:
                                 print(f"--- [USB] Errore elaborazione file {file}: {file_err} ---")
 
-            # 2. Rileva rimozione di chiavette esistenti
             removed_drives = seen_drives - current_drives
             for drive in removed_drives:
                 print(f"\n--- [USB] Chiavetta rimossa: {drive} ---")
@@ -661,7 +644,6 @@ def admin_app():
                 with container:
                     ui.label("In attesa del file tmp.json...").classes('text-gray-400 italic')
 
-        # Aggiornamento iniziale e polling tramite timer ogni 2 secondi
         update_data()
         ui.timer(2.0, update_data)
 
