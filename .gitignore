@@ -3,9 +3,8 @@ __pycache__/
 DOCUMENTS/
 IMAGES/
 tmp/
-screenshots/
-config.json
+dev_config.json
 tmp.json
 SumatraPDF-settings.txt
 TODO
-test.py
+pymupdf-venv/
