@@ -8,3 +8,6 @@ tmp.json
 SumatraPDF-settings.txt
 TODO
 pymupdf-venv/
+dist/
+PrintingKiosk.spec
+documents.db

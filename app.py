@@ -3,8 +3,6 @@ import sys
 import base64
 import asyncio
 import subprocess
-import psycopg2
-from psycopg2.extras import RealDictCursor
 from nicegui import ui, run, app
 import json
 import uuid
@@ -36,6 +34,7 @@ import shutil
 import ctypes
 from git import Repo, GitCommandError
 import multiprocessing
+import sqlite3
 
 if sys.platform == 'win32':
     from asyncio.proactor_events import _ProactorBasePipeTransport
@@ -66,16 +65,9 @@ TMP_DIR = "tmp"
 API_URL = "http://localhost:8080"
 INSTANCE = file['name']
 API_KEY = file['apikey']
-db_pass = file['pass']
 usb_code = file['usb_code']
 
-DB_CONFIG = {
-    "dbname": "images",
-    "user": "postgres",
-    "password": db_pass,
-    "host": "localhost",
-    "port": "5432"
-}
+DB_PATH = 'documents.db'
 
 PRICES = file['prices']
 FOLDERS_TO_CLEAN = ["IMAGES", "DOCUMENTS", "tmp"]
@@ -186,34 +178,29 @@ class PrintingKiosk:
         self.image_longest_side = 210
 
     def _search_worker(self, code):
-        conn = None
-        conn = psycopg2.connect(**DB_CONFIG)
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        conn = get_connection()
+        cursor = conn.cursor()
 
         query = """
             SELECT code, file_paths
             FROM orders
-            WHERE code = %s
+            WHERE code = ?
             ORDER BY created_at DESC
         """
         cursor.execute(query, (code,))
         results = cursor.fetchall()
 
-        if len(results) == 0:
-            ui.notify("Codice errato", type='warning')
-            cursor.close()
-            conn.close()
-            return
-        
-        ui.notify("Trovato i tuoi file", type='positive')
         cursor.close()
         conn.close()
 
-        if results:
-            record = results[0]
-            file_list = record['file_paths']
-            return file_list
-
+        if not results:
+            return None
+        
+        record = results[0]
+        # Converte la stringa JSON memorizzata nel DB SQLite in lista Python
+        file_list = json.loads(record['file_paths']) if record['file_paths'] else []
+        return file_list
+    
     async def search_by_code(self, code, container):
         if not code:
             ui.notify("Inserisci un codice valido", type='warning')
@@ -314,15 +301,7 @@ class PrintingKiosk:
             ui.timer(3.0, self.update_cost)
 
         self.current_file_list = file_list
-
-        start_inactivity_timer(
-        container, 
-        timeout_seconds=TimeoutTime, 
-        on_timeout=lambda: self.render_login(container)
-        )
         
-
-
     def toggle_selection(self, file_path, card):
         base_classes = 'w-64 h-64 border p-2 cursor-pointer transition-all'
         
@@ -525,7 +504,6 @@ class PrintingKiosk:
             return output_path, True
         else:
             return multi_image[0], False
-
 
     def render_img_resizer(self, container, img_file):
         container.clear()
@@ -940,11 +918,6 @@ class PrintingKiosk:
                             self.preview_area = ui.column().classes('w-full items-center')
 
             ui.timer(0.1, self.update_ui_elements, once=True)
-        start_inactivity_timer(
-                container, 
-                timeout_seconds=TimeoutTime, 
-                on_timeout=lambda: self.render_login(container)
-                )
 
     async def update_ui_elements(self, *args):
         if self.is_updating:
@@ -1070,13 +1043,17 @@ class PrintingKiosk:
 
     def clean_all(self):
         try:
-            conn = psycopg2.connect(**DB_CONFIG)
+            conn = get_connection()
             cur = conn.cursor()
-            cur.execute("TRUNCATE TABLE orders RESTART IDENTITY;")
+            
+            # Svuota la tabella e azzera il contatore AUTOINCREMENT
+            cur.execute("DELETE FROM orders;")
+            cur.execute("DELETE FROM sqlite_sequence WHERE name='orders';")
+            
             initial_files = json.dumps([]) 
             cur.execute("""
                 INSERT INTO orders (sender, code, file_paths) 
-                VALUES (%s, %s, %s)
+                VALUES (?, ?, ?)
             """, (usb_code, usb_code, initial_files))
 
             conn.commit()
@@ -1432,59 +1409,6 @@ def scale_pdf_text(input_pdf: str, percentage: float) -> str:
         
     return abs_input
 
-def start_inactivity_timer(container, timeout_seconds=90, on_timeout=None):
-    if not callable(on_timeout):
-        return
-
-    uid = uuid.uuid4().hex[:6]
-    btn_id = f"inactivity-trigger-{uid}"
-
-    with container:
-        hidden_btn = ui.button().props(f'id={btn_id}').classes('hidden')
-
-        def handle_timeout():
-            container.client.run_javascript('if(window._inactivityCleanup) window._inactivityCleanup();')
-            on_timeout()
-
-        hidden_btn.on_click(handle_timeout)
-
-    container.client.run_javascript(f'''
-        (function() {{
-            const timeoutMs = {timeout_seconds * 1000};
-            let timer;
-
-            // Rimuove eventuali timer attivi da schermate precedenti
-            if (window._inactivityCleanup) {{
-                window._inactivityCleanup();
-            }}
-
-            function resetTimer() {{
-                clearTimeout(timer);
-                timer = setTimeout(() => {{
-                    const btn = document.getElementById("{btn_id}");
-                    // Esegue il click solo se l'elemento è ancora presente nel DOM
-                    if (btn) {{
-                        btn.click();
-                    }}
-                }}, timeoutMs);
-            }}
-
-            const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
-
-            function onActivity() {{
-                resetTimer();
-            }}
-
-            events.forEach(evt => window.addEventListener(evt, onActivity, true));
-
-            window._inactivityCleanup = function() {{
-                clearTimeout(timer);
-                events.forEach(evt => window.removeEventListener(evt, onActivity, true));
-            }};
-
-            resetTimer();
-        }})();
-    ''')
 def check_for_git_updates():
     if not os.path.exists('.git'):
         print("Cartella .git non trovata. Controllo aggiornamenti saltato.")
@@ -1863,11 +1787,12 @@ def email_monitor_loop(interval_seconds=30):
 
 def clear_usb_files_from_db(usb_code):
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
+        conn = get_connection()
         cur = conn.cursor()
         
         empty_files = json.dumps([])
-        cur.execute("UPDATE orders SET file_paths = %s WHERE code = %s;", (empty_files, usb_code))
+        # In SQLite il segnaposto %s viene sostituito dal punto interrogativo ?
+        cur.execute("UPDATE orders SET file_paths = ? WHERE code = ?;", (empty_files, usb_code))
         
         conn.commit()
         cur.close()
@@ -1990,41 +1915,47 @@ def decrypt_whatsapp_media(enc_data, media_key_input, media_type):
     return data
 
 def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
+    conn = sqlite3.connect(DB_PATH)
+    # Permette di accedere ai campi tramite nome colonna (es. row['code'])
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def init_db():
     query = '''CREATE TABLE IF NOT EXISTS orders (
-                id SERIAL PRIMARY KEY,
-                sender VARCHAR(255) NOT NULL,
-                code VARCHAR(10),
-                price VARCHAR(10),
-                file_paths JSONB DEFAULT '[]',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sender TEXT NOT NULL,
+                code TEXT,
+                price TEXT,
+                file_paths TEXT DEFAULT '[]',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );'''
     
     with get_connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            conn.commit()
+        conn.execute(query)
+        conn.commit()
 
 def register_or_append_file(sender, file_path):
     conn = get_connection()
     cur = conn.cursor()
     
-    cur.execute("SELECT id, code FROM orders WHERE sender = %s ORDER BY id DESC LIMIT 1", (sender,))
+    cur.execute("SELECT id, code, file_paths FROM orders WHERE sender = ? ORDER BY id DESC LIMIT 1", (sender,))
     row = cur.fetchone()
     
     code = None
     
     if row:
-        order_id = row[0]
-        code = row[1]
+        order_id = row['id']
+        code = row['code']
+        
+        # Recupera la lista corrente, aggiunge il file e salva nuovamente
+        existing_files = json.loads(row['file_paths']) if row['file_paths'] else []
+        existing_files.append(file_path)
         
         cur.execute("""
             UPDATE orders 
-            SET file_paths = file_paths || %s::jsonb
-            WHERE id = %s
-        """, (json.dumps([file_path]), order_id))
+            SET file_paths = ?
+            WHERE id = ?
+        """, (json.dumps(existing_files), order_id))
         
         print(f"--- [DB] File aggiunto all'ordine esistente {order_id} ---")
         
@@ -2033,7 +1964,7 @@ def register_or_append_file(sender, file_path):
         
         cur.execute("""
             INSERT INTO orders (sender, code, file_paths) 
-            VALUES (%s, %s, %s)
+            VALUES (?, ?, ?)
         """, (sender, code, json.dumps([file_path])))
         
         print(f"--- [DB] Nuova entry creata con codice {code} ---")
@@ -2095,7 +2026,7 @@ def client_app():
         main_container = ui.column().classes('w-full items-center')
         app_instance.render_login(main_container)
         
-    ui.run(host='0.0.0.0', port=7777, title="Printing Kiosk", show=False, reload=False)
+    ui.run(host='0.0.0.0', port=7777, title="Printing Kiosk", show=True, reload=False)
 
 def run_bkapp():
     bkapp.run(host='0.0.0.0', port=8080, debug=False)
