@@ -32,8 +32,6 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 import shutil
 import ctypes
-from git import Repo, GitCommandError
-import multiprocessing
 import sqlite3
 import copy
 
