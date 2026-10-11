@@ -35,6 +35,7 @@ import ctypes
 from git import Repo, GitCommandError
 import multiprocessing
 import sqlite3
+import copy
 
 if sys.platform == 'win32':
     from asyncio.proactor_events import _ProactorBasePipeTransport
@@ -73,6 +74,9 @@ PRICES = file['prices']
 FOLDERS_TO_CLEAN = ["IMAGES", "DOCUMENTS", "tmp"]
 
 TimeoutTime = file['timeout']
+
+app.native.window_args['resizable'] = False
+app.native.window_args['text_select'] = False
 
 isdev = file['isdev']
 
@@ -173,6 +177,15 @@ class PrintingKiosk:
             'layout': 'Uno per foglio',
             'pages': 'Tutte',
             'format': 'A4'
+        }
+
+        self.configdef = {
+                    'copies': 1,
+                    'mode': 'Bianco e Nero',
+                    'duplex': 'Fronte-Retro',
+                    'layout': 'Uno per foglio',
+                    'pages': 'Tutte',
+                    'format': 'A4'
         }
         self.text_scale = 100
         self.image_longest_side = 210
@@ -821,39 +834,19 @@ class PrintingKiosk:
             return None
 
     def get_printers(self):
-        """Recupera la lista delle stampanti di sistema per Windows e Linux."""
-        system = platform.system()
-
-        # --- LOGICA WINDOWS ---
-        if system == "Windows":
-            try:
-                import win32print
-                return [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
-            except ImportError:
-                print("Modulo win32print non trovato.")
-                return []
-            except Exception as e:
-                print(f"Errore stampanti Windows: {e}")
-                return []
-
-        # --- LOGICA LINUX ---
-        elif system == "Linux":
-            try:
-                output = subprocess.check_output(['lpstat', '-p'], text=True)
-                printers = []
-                for line in output.splitlines():
-                    if line.startswith("printer"):
-                        parts = line.split()
-                        if len(parts) > 1:
-                            printers.append(parts[1])
-                return printers
-            except Exception as e:
-                print(f"Errore recupero stampanti Linux: {e}")
-                return []
-
-        return []
+        """Recupera la lista delle stampanti di sistema per Windows"""
+        try:
+            import win32print
+            return [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
+        except ImportError:
+            print("Modulo win32print non trovato.")
+            return []
+        except Exception as e:
+            print(f"Errore stampanti Windows: {e}")
+            return []
         
     def render_print_config(self, container, file_path, haspdf):
+        self.config = copy.deepcopy(self.configdef)
         container.clear()
         
         self.current_file_path = file_path
@@ -992,17 +985,16 @@ class PrintingKiosk:
 
             # Struttura: key -> (label, password_field)
             field_definitions = {
-                "pass": ("DbPassword", True),
-                "name": ("IstanceName", False),
-                "phonenum": ("Phonenumber)", False),
+                "pass": ("Postgres Password", True),
+                "name": ("Evolution Istance Name", False),
+                "phonenum": ("Phonenumber", False),
                 "apikey": ("API Key", True),
                 "mode": ("Mode (silence/send)", False),
                 "EMAIL_USER" : ("Email",False),
-                "EMAIL_PASS" : ("Email App password", True),
-                "sudo": ("ConfigCode", False),
-                "shutp": ("ShutCode", False),
-                "usb_code" : ("UsbCode", False),
-                "timeout" : ("Timeout Back", False)
+                "EMAIL_PASS" : ("Email password", True),
+                "sudo": ("Configuration Code", False),
+                "shutp": ("Shutdown Code", False),
+                "usb_code" : ("USB files Code", False)
             }
             
             inputs = {}
@@ -1032,10 +1024,7 @@ class PrintingKiosk:
                 self.clean_all()
                 ui.notify("Pulizia eseguita", type='info')
             def shutdown():
-                if platform.system() == "Linux":
-                    os.system("sudo poweroff")
-                elif platform.system() == "Windows":
-                    os.system("shutdown /s /t 0")
+                os.system("shutdown /s /t 0")
 
             ui.button("Cancella dati temporanei", on_click=do_extra_action).classes('w-full max-w-md bg-red-500 mt-5')
             ui.button("Spegni il server", on_click=shutdown).classes('w-full max-w-md bg-red-500 mt-5')
@@ -1409,52 +1398,6 @@ def scale_pdf_text(input_pdf: str, percentage: float) -> str:
         
     return abs_input
 
-def check_for_git_updates():
-    if not os.path.exists('.git'):
-        print("Cartella .git non trovata. Controllo aggiornamenti saltato.")
-        return
-
-    try:
-        repo = Repo('.')
-        
-        if repo.is_dirty(untracked_files=False):
-            print("Attenzione: Ci sono modifiche locali non salvate. Pulled disabilitato.")
-            return
-
-        origin = repo.remotes.origin
-        
-        origin.fetch()
-
-        current_branch = repo.active_branch
-        tracking_branch = current_branch.tracking_branch()
-
-        if tracking_branch is None:
-            print(f"Nessun branch remoto associato a {current_branch.name}.")
-            return
-
-        local_commit = current_branch.commit
-        remote_commit = tracking_branch.commit
-
-        if local_commit != remote_commit:
-            print(f"Nuovo aggiornamento trovato! ({local_commit.hexsha[:7]} -> {remote_commit.hexsha[:7]})")
-            print("Download in corso...")
-            
-            # Esegue il pull
-            origin.pull()
-            
-            print("Aggiornamento completato con successo. Riavvio dell'applicazione...")
-            
-            # Riavvia il processo Python per caricare il nuovo codice scaricato
-            os.execv(sys.executable, [sys.executable] + sys.argv)
-        else:
-            print("Il software è già aggiornato all'ultima versione.")
-
-    except GitCommandError as e:
-        print(f"Errore durante la comunicazione con Git (es. manca connessione): {e}")
-    except Exception as e:
-        print(f"Errore imprevisto durante il controllo aggiornamenti: {e}")
-
-
 def get_servers_from_email(email_address):
     domain = email_address.split("@")[-1].lower()
     
@@ -1510,9 +1453,7 @@ if not os.path.exists(Doc_path):
 if not os.path.exists(Img_path): 
     os.makedirs(Img_path)
 
-bkapp = Flask(__name__)
 
-@bkapp.route('/webhook', methods=['POST'])
 def webhook():
     payload = request.json
     if not payload or payload.get('event') != 'messages.upsert':
@@ -1975,86 +1916,47 @@ def register_or_append_file(sender, file_path):
     
     return code
 
-def admin_app():
-    try:
-        @ui.page('/')
-        def page2():
-            ui.label("Pannello Admin - Prezzi in Tempo Reale").classes('text-2xl font-bold mb-4')
-            
-            container = ui.column().classes('w-full gap-2')
-            
-            def update_data():
-                container.clear()
-                file_path = 'tmp.json'
-                
-                if os.path.exists(file_path):
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                        
-                        with container:
-                            if not data:
-                                ui.label("Il file tmp.json è vuoto.").classes('text-gray-500')
-                            else:
-                                with ui.table(
-                                    columns=[
-                                        {'name': 'key', 'label': 'Codice', 'field': 'key', 'align': 'left'},
-                                        {'name': 'value', 'label': 'Valore / Prezzo', 'field': 'value', 'align': 'left'},
-                                    ],
-                                    rows=[{'key': k, 'value': v} for k, v in data.items()]
-                                ).classes('w-full'):
-                                    pass
-                    except Exception as e:
-                        with container:
-                            ui.label(f"Errore di lettura JSON: {e}").classes('text-red-500 text-sm')
-                else:
-                    with container:
-                        ui.label("In attesa del file tmp.json...").classes('text-gray-400 italic')
-
-            update_data()
-            ui.timer(2.0, update_data)
-
-        print("[ADMIN] Avvio server Admin sulla porta 7776...")
-        ui.run(host='0.0.0.0', port=7776, title="Admin Kiosk", show=False, reload=False)
-    except Exception as e:
-        print(f"[ERRORE ADMIN APP]: {e}")
-
-def client_app():
-    app_instance = PrintingKiosk()
-    @ui.page('/')
-    def index():
-        main_container = ui.column().classes('w-full items-center')
-        app_instance.render_login(main_container)
-        
-    ui.run(host='0.0.0.0', port=7777, title="Printing Kiosk", show=True, reload=False)
-
 def run_bkapp():
-    bkapp.run(host='0.0.0.0', port=8080, debug=False)
+    bkapp = Flask(__name__)
+    
+    @bkapp.route('/webhook', methods=['POST'])
+    def webhook():
+        # Inserisci qui la logica del tuo webhook Flask
+        return "OK", 200
+
+    # IMPORTANTE: use_reloader=False è obbligatorio dentro un thread
+    bkapp.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
 
 
-if __name__ == '__main__':
-    multiprocessing.freeze_support()
-
-    # 1. Inizializzazioni (eseguite UNA SOLA VOLTA dal processo padre)
-    check_for_git_updates()
+if __name__ in {"__main__", "__mp_main__"}:
+    # 1. Inizializzazioni
     init_db()
 
-    # 2. Avvio processi separati per Admin App e Flask Backend
-    #admin_process = multiprocessing.Process(target=admin_app, name="AdminAppProcess", daemon=True)
-    #admin_process.start()
+    # 2. Avvio del server Flask in un thread dedicato (daemon=True si chiude alla chiusura dell'app)
+    flask_thread = threading.Thread(target=run_bkapp, daemon=True)
+    flask_thread.start()
 
-    bk_process = multiprocessing.Process(target=run_bkapp, name="BkAppProcess", daemon=True)
-    bk_process.start()
-
-    # 3. Avvio thread di background (eseguiti solo dal processo padre)
+    # 3. Altri thread in background (USB e Email)
     usb_thread = threading.Thread(target=usb_monitor_loop, daemon=True)
     usb_thread.start()
 
     email_thread = threading.Thread(target=email_monitor_loop, args=(30,), daemon=True)
     email_thread.start()
 
-    # 4. Avvio App Client principale nel Main Thread
-    try:
-        client_app()
-    except KeyboardInterrupt:
-        print("\nArresto dell'applicazione in corso...")
+    # 4. Configurazione NiceGUI e interfaccia principale
+    app_instance = PrintingKiosk()
+    
+    @ui.page('/')
+    def index():
+        main_container = ui.column().classes('w-full items-center')
+        app_instance.render_login(main_container)
+        ui.add_head_html('<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">')
+
+    # Avvio dell'interfaccia NiceGUI (con supporto a pywebview e schermo intero)
+    ui.run(
+        host='0.0.0.0', 
+        port=7777, 
+        title="Printing Kiosk", 
+        fullscreen=True,
+        reload=False
+    )

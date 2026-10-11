@@ -11,3 +11,6 @@ pymupdf-venv/
 dist/
 PrintingKiosk.spec
 documents.db
+buid/
+app.spec
+build/
